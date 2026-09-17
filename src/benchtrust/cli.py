@@ -1,13 +1,25 @@
 from __future__ import annotations
 
 import json
+import subprocess
 from pathlib import Path
 
 import pandas as pd
 import typer
 
-from .ingestion.swebench import catalog_submissions, load_submission_outcomes
+from .ingestion.huggingface import (
+    SWE_BENCH_VERIFIED_REPO,
+    SWE_BENCH_VERIFIED_REVISION,
+    SWE_BENCH_VERIFIED_SHA256,
+    fetch_swebench_verified_task_universe,
+)
+from .ingestion.swebench import (
+    catalog_submissions,
+    load_submission_outcomes,
+    reproduce_submission_scores,
+)
 from .power import paired_power_curve
+from .provenance import build_manifest, write_manifest
 from .statistics import bootstrap_leaderboard, task_summary
 from .validation import validate_outcome_table
 
@@ -36,6 +48,21 @@ def _read_task_ids(path: Path) -> list[str]:
             if line.strip()
         ]
     return list(dict.fromkeys(values))
+
+
+def _git_head(repo_path: Path) -> str:
+    try:
+        completed = subprocess.run(
+            ["git", "-C", str(repo_path), "rev-parse", "HEAD"],
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+    except (FileNotFoundError, subprocess.CalledProcessError) as exc:
+        raise typer.BadParameter(
+            f"{repo_path} must be a Git checkout with git available"
+        ) from exc
+    return completed.stdout.strip()
 
 
 @app.command()
@@ -109,31 +136,100 @@ def power(
     typer.echo(f"Wrote {output_path}")
 
 
+@app.command("fetch-swebench-verified")
+def fetch_swebench_verified(
+    output_dir: Path = Path("data/raw/swebench_verified"),
+) -> None:
+    """Fetch the pinned official 500-task SWE-bench Verified universe."""
+
+    parquet_path, task_path = fetch_swebench_verified_task_universe(output_dir)
+    manifest = build_manifest(
+        benchmark="swe-bench",
+        benchmark_split="verified",
+        sources=[
+            {
+                "name": "SWE-bench Verified dataset",
+                "url": f"https://huggingface.co/datasets/{SWE_BENCH_VERIFIED_REPO}",
+                "revision": SWE_BENCH_VERIFIED_REVISION,
+                "parquet_sha256": SWE_BENCH_VERIFIED_SHA256,
+            }
+        ],
+        files=[parquet_path, task_path],
+        extra={"expected_task_count": 500},
+    )
+    manifest_path = write_manifest(manifest, output_dir / "provenance.json")
+    typer.echo(f"Wrote pinned task universe and {manifest_path}")
+
+
 @app.command("ingest-swebench")
 def ingest_swebench(
     experiments_root: Path,
     task_universe: Path,
+    experiments_revision: str = typer.Option(
+        ...,
+        "--experiments-revision",
+        help="Exact SWE-bench/experiments Git commit SHA expected in the local checkout.",
+    ),
     output_dir: Path = Path("data/processed"),
     split: str = "verified",
 ) -> None:
-    """Normalize an official SWE-bench experiments checkout into Parquet tables."""
+    """Normalize a pinned SWE-bench experiments checkout into Parquet tables."""
+
+    actual_revision = _git_head(experiments_root)
+    if actual_revision != experiments_revision:
+        raise typer.BadParameter(
+            "experiments checkout revision mismatch: "
+            f"expected {experiments_revision}, observed {actual_revision}"
+        )
 
     task_ids = _read_task_ids(task_universe)
     catalog = catalog_submissions(experiments_root, split=split)
     if catalog.empty:
         raise typer.BadParameter(f"no valid submissions found for split={split}")
 
-    outcomes: list[pd.DataFrame] = []
+    outcomes_list: list[pd.DataFrame] = []
     for submission_id in catalog["submission_id"]:
         submission_dir = experiments_root / "evaluation" / split / str(submission_id)
-        outcomes.append(load_submission_outcomes(submission_dir, task_ids))
+        outcomes_list.append(load_submission_outcomes(submission_dir, task_ids))
+    outcomes = pd.concat(outcomes_list, ignore_index=True)
+    reproduction = reproduce_submission_scores(catalog, outcomes)
 
     output_dir.mkdir(parents=True, exist_ok=True)
-    catalog.to_parquet(output_dir / f"swebench_{split}_submissions.parquet", index=False)
-    pd.concat(outcomes, ignore_index=True).to_parquet(
-        output_dir / f"swebench_{split}_outcomes.parquet",
-        index=False,
+    catalog_path = output_dir / f"swebench_{split}_submissions.parquet"
+    outcomes_path = output_dir / f"swebench_{split}_outcomes.parquet"
+    reproduction_path = output_dir / f"swebench_{split}_score_reproduction.csv"
+    catalog.to_parquet(catalog_path, index=False)
+    outcomes.to_parquet(outcomes_path, index=False)
+    reproduction.to_csv(reproduction_path, index=False)
+
+    manifest = build_manifest(
+        benchmark="swe-bench",
+        benchmark_split=split,
+        sources=[
+            {
+                "name": "SWE-bench experiments",
+                "url": "https://github.com/SWE-bench/experiments",
+                "revision": experiments_revision,
+            }
+        ],
+        files=[task_universe, catalog_path, outcomes_path, reproduction_path],
+        extra={
+            "submission_count": len(catalog),
+            "task_count": len(task_ids),
+            "outcome_rows": len(outcomes),
+        },
     )
+    manifest_path = write_manifest(
+        manifest, output_dir / f"swebench_{split}_provenance.json"
+    )
+
+    count_failures = int((~reproduction["resolved_count_matches"]).sum())
+    reported_rows = reproduction[reproduction["reported_score_available"]]
+    score_failures = int((~reported_rows["reported_score_matches"]).sum())
     typer.echo(
-        f"Ingested {len(catalog)} submissions x {len(task_ids)} tasks into {output_dir}"
+        f"Ingested {len(catalog)} submissions x {len(task_ids)} tasks into {output_dir}; "
+        f"score reproduction failures={score_failures}, count failures={count_failures}; "
+        f"manifest={manifest_path}"
     )
+    if count_failures or score_failures:
+        raise typer.Exit(code=1)
