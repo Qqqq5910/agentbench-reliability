@@ -7,6 +7,7 @@ from pathlib import Path
 import pandas as pd
 import typer
 
+from .cohorts import select_single_attempt_cohort
 from .ingestion.huggingface import (
     SWE_BENCH_VERIFIED_REPO,
     SWE_BENCH_VERIFIED_REVISION,
@@ -193,14 +194,21 @@ def ingest_swebench(
         outcomes_list.append(load_submission_outcomes(submission_dir, task_ids))
     outcomes = pd.concat(outcomes_list, ignore_index=True)
     reproduction = reproduce_submission_scores(catalog, outcomes)
+    primary_catalog, primary_outcomes = select_single_attempt_cohort(
+        catalog, outcomes, reproduction
+    )
 
     output_dir.mkdir(parents=True, exist_ok=True)
     catalog_path = output_dir / f"swebench_{split}_submissions.parquet"
     outcomes_path = output_dir / f"swebench_{split}_outcomes.parquet"
     reproduction_path = output_dir / f"swebench_{split}_score_reproduction.csv"
+    primary_catalog_path = output_dir / f"swebench_{split}_primary_submissions.parquet"
+    primary_outcomes_path = output_dir / f"swebench_{split}_primary_outcomes.parquet"
     catalog.to_parquet(catalog_path, index=False)
     outcomes.to_parquet(outcomes_path, index=False)
     reproduction.to_csv(reproduction_path, index=False)
+    primary_catalog.to_parquet(primary_catalog_path, index=False)
+    primary_outcomes.to_parquet(primary_outcomes_path, index=False)
 
     manifest = build_manifest(
         benchmark="swe-bench",
@@ -212,11 +220,20 @@ def ingest_swebench(
                 "revision": experiments_revision,
             }
         ],
-        files=[task_universe, catalog_path, outcomes_path, reproduction_path],
+        files=[
+            task_universe,
+            catalog_path,
+            outcomes_path,
+            reproduction_path,
+            primary_catalog_path,
+            primary_outcomes_path,
+        ],
         extra={
             "submission_count": len(catalog),
+            "primary_single_attempt_submission_count": len(primary_catalog),
             "task_count": len(task_ids),
             "outcome_rows": len(outcomes),
+            "primary_outcome_rows": len(primary_outcomes),
         },
     )
     manifest_path = write_manifest(
@@ -228,6 +245,7 @@ def ingest_swebench(
     score_failures = int((~reported_rows["reported_score_matches"]).sum())
     typer.echo(
         f"Ingested {len(catalog)} submissions x {len(task_ids)} tasks into {output_dir}; "
+        f"primary single-attempt submissions={len(primary_catalog)}; "
         f"score reproduction failures={score_failures}, count failures={count_failures}; "
         f"manifest={manifest_path}"
     )
