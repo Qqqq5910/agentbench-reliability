@@ -25,6 +25,25 @@ def _load_results(path: Path) -> dict[str, Any]:
     return data
 
 
+def _optional_int(value: Any) -> int | None:
+    if value is None or value == "":
+        return None
+    try:
+        converted = int(value)
+    except (TypeError, ValueError):
+        return None
+    return converted if converted >= 0 else None
+
+
+def _optional_float(value: Any) -> float | None:
+    if value is None or value == "":
+        return None
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return None
+
+
 def catalog_submissions(
     experiments_root: str | Path,
     *,
@@ -59,6 +78,7 @@ def catalog_submissions(
         if isinstance(models, str):
             models = [models]
         assets = metadata.get("assets") or {}
+        attempts_raw = system.get("attempts")
 
         rows.append(
             {
@@ -66,13 +86,14 @@ def catalog_submissions(
                 "benchmark": "swe-bench",
                 "split": split,
                 "display_name": info.get("name"),
-                "reported_score_percent": info.get("resolved"),
+                "reported_score_percent": _optional_float(info.get("resolved")),
                 "agent": tags.get("agent"),
                 "agent_org": tags.get("agent_org"),
                 "model_ids": json.dumps(models, ensure_ascii=False),
                 "model_display": tags.get("model_display"),
                 "model_org": tags.get("model_org"),
-                "attempts": system.get("attempts"),
+                "attempts": _optional_int(attempts_raw),
+                "attempts_raw": None if attempts_raw is None else str(attempts_raw),
                 "checked": tags.get("checked"),
                 "open_source_system": tags.get("os_system"),
                 "open_source_model": tags.get("os_model"),
