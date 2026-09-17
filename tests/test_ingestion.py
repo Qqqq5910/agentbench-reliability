@@ -54,6 +54,23 @@ def test_catalog_submissions(tmp_path: Path) -> None:
     assert catalog.loc[0, "reported_score_percent"] == 100.0 / 3.0
 
 
+def test_catalog_normalizes_historical_booleanish_metadata(tmp_path: Path) -> None:
+    submission = _write_submission(tmp_path)
+    metadata_path = submission / "metadata.yaml"
+    metadata = yaml.safe_load(metadata_path.read_text(encoding="utf-8"))
+    metadata["tags"]["checked"] = "false (See README.md for verification details)"
+    metadata["tags"]["os_system"] = "true"
+    metadata["tags"]["os_model"] = "unknown"
+    metadata_path.write_text(yaml.safe_dump(metadata), encoding="utf-8")
+
+    catalog = catalog_submissions(tmp_path)
+    assert bool(catalog.loc[0, "checked"]) is False
+    assert catalog.loc[0, "checked_raw"].startswith("false")
+    assert bool(catalog.loc[0, "open_source_system"]) is True
+    assert catalog.loc[0, "open_source_model"] is None
+    assert catalog.loc[0, "open_source_model_raw"] == "unknown"
+
+
 def test_load_submission_outcomes_expands_full_universe(tmp_path: Path) -> None:
     submission = _write_submission(tmp_path)
     outcomes = load_submission_outcomes(submission, ["task-1", "task-2", "task-3"])
