@@ -23,6 +23,13 @@ from .power import paired_power_curve
 from .provenance import build_manifest, write_manifest
 from .statistics import bootstrap_leaderboard, task_summary
 from .validation import validate_outcome_table
+from .visualization import (
+    plot_pairwise_ordering,
+    plot_power_curve,
+    plot_rank_intervals,
+    plot_score_intervals,
+    plot_task_disagreement,
+)
 
 app = typer.Typer(no_args_is_help=True, help="Reliability analysis for AI benchmarks.")
 
@@ -91,8 +98,9 @@ def analyze(
     output_dir: Path = Path("artifacts/analysis"),
     n_boot: int = 10_000,
     seed: int = 0,
+    top_n_figures: int = 20,
 ) -> None:
-    """Run the Stage 1 bootstrap leaderboard and task-disagreement analysis."""
+    """Run Stage 1 bootstrap analyses and generate core figures."""
 
     frame = _read_table(input_path)
     report = validate_outcome_table(frame)
@@ -107,7 +115,22 @@ def analyze(
     leaderboard.to_csv(output_dir / "leaderboard_bootstrap.csv", index=False)
     pairwise.to_csv(output_dir / "pairwise_ordering_probability.csv")
     tasks.to_csv(output_dir / "task_summary.csv", index=False)
-    typer.echo(f"Wrote analysis artifacts to {output_dir}")
+
+    figure_dir = output_dir / "figures"
+    plot_score_intervals(
+        leaderboard, figure_dir / "fig01_score_intervals.png", top_n=top_n_figures
+    )
+    plot_rank_intervals(
+        leaderboard, figure_dir / "fig02_rank_intervals.png", top_n=top_n_figures
+    )
+    plot_pairwise_ordering(
+        pairwise,
+        leaderboard,
+        figure_dir / "fig03_pairwise_ordering.png",
+        top_n=top_n_figures,
+    )
+    plot_task_disagreement(tasks, figure_dir / "fig04_task_disagreement.png")
+    typer.echo(f"Wrote analysis tables and figures to {output_dir}")
 
 
 @app.command()
@@ -134,7 +157,9 @@ def power(
     )
     output_path.parent.mkdir(parents=True, exist_ok=True)
     result.to_csv(output_path, index=False)
-    typer.echo(f"Wrote {output_path}")
+    figure_path = output_path.with_suffix(".png")
+    plot_power_curve(result, figure_path)
+    typer.echo(f"Wrote {output_path} and {figure_path}")
 
 
 @app.command("fetch-swebench-verified")
