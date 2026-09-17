@@ -1,4 +1,4 @@
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
 from benchtrust.provenance import build_manifest, sha256_file, write_manifest
@@ -13,7 +13,7 @@ def test_sha256_file_known_content(tmp_path: Path) -> None:
 def test_manifest_records_pinned_sources_and_file_hash(tmp_path: Path) -> None:
     path = tmp_path / "tasks.csv"
     path.write_text("task_id\ntask-1\n", encoding="utf-8")
-    created = datetime(2026, 9, 17, 6, 0, tzinfo=timezone.utc)
+    created = datetime(2026, 9, 17, 6, 0, tzinfo=UTC)
     manifest = build_manifest(
         benchmark="swe-bench",
         benchmark_split="verified",
