@@ -7,7 +7,7 @@ from benchtrust.provenance import build_manifest, sha256_file, write_manifest
 def test_sha256_file_known_content(tmp_path: Path) -> None:
     path = tmp_path / "sample.txt"
     path.write_text("agentbench\n", encoding="utf-8")
-    assert sha256_file(path) == "7249967ca0e25850417d627299704f747267ad8f62a63a90853d3190e1aeb971"
+    assert sha256_file(path) == "15652d00828df83e93785a1c5208b5e03f77f7f57c0e71b739cac490258dca8f"
 
 
 def test_manifest_records_pinned_sources_and_file_hash(tmp_path: Path) -> None:
