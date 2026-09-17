@@ -1,0 +1,176 @@
+name: stage1-research
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/stage1.yml"
+
+permissions:
+  contents: write
+
+jobs:
+  stage1:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      MPLBACKEND: Agg
+      EXPERIMENTS_REVISION: 40f164d5b8f1d249bf95a6df8b74b577fd8e519d
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: Install research environment
+        run: python -m pip install -e ".[dev,research]"
+
+      - name: Verify code before research run
+        run: |
+          ruff check .
+          pytest -q
+
+      - name: Fetch pinned SWE-bench Verified task universe
+        run: |
+          benchtrust fetch-swebench-verified \
+            --output-dir data/raw/swebench_verified
+
+      - name: Fetch pinned SWE-bench experiments registry
+        run: |
+          git clone https://github.com/SWE-bench/experiments external/swebench-experiments
+          git -C external/swebench-experiments checkout "$EXPERIMENTS_REVISION"
+          test "$(git -C external/swebench-experiments rev-parse HEAD)" = "$EXPERIMENTS_REVISION"
+
+      - name: Normalize submissions and reproduce official scores
+        run: |
+          benchtrust ingest-swebench \
+            external/swebench-experiments \
+            data/raw/swebench_verified/swebench_verified_task_ids.csv \
+            --experiments-revision "$EXPERIMENTS_REVISION" \
+            --split verified \
+            --output-dir data/processed
+
+      - name: Validate primary single-attempt cohort
+        run: |
+          benchtrust validate \
+            data/processed/swebench_verified_primary_outcomes.parquet
+
+      - name: Run Stage 1 task-bootstrap analysis
+        run: |
+          benchtrust analyze \
+            data/processed/swebench_verified_primary_outcomes.parquet \
+            --output-dir artifacts/stage1 \
+            --n-boot 10000 \
+            --seed 20260917 \
+            --top-n-figures 20
+
+      - name: Run top-pair benchmark-size sensitivity
+        run: |
+          python - <<'PY' > /tmp/top_pair.env
+          import pandas as pd
+
+          frame = pd.read_csv("artifacts/stage1/leaderboard_bootstrap.csv")
+          if len(frame) < 2:
+              raise SystemExit("Stage 1 primary cohort has fewer than two systems")
+          print(f"SYSTEM_A={frame.iloc[0]['system_id']}")
+          print(f"SYSTEM_B={frame.iloc[1]['system_id']}")
+          PY
+          source /tmp/top_pair.env
+          benchtrust power \
+            data/processed/swebench_verified_primary_outcomes.parquet \
+            "$SYSTEM_A" "$SYSTEM_B" \
+            --sample-sizes 25,50,100,200,500,1000,2000 \
+            --n-sim 10000 \
+            --seed 20260917 \
+            --output-path artifacts/stage1/power_top_pair.csv
+
+      - name: Publish provenance and snapshot facts
+        run: |
+          cp data/processed/swebench_verified_provenance.json artifacts/stage1/provenance.json
+          cp data/processed/swebench_verified_score_reproduction.csv artifacts/stage1/score_reproduction.csv
+          python - <<'PY'
+          from pathlib import Path
+          import pandas as pd
+
+          catalog = pd.read_parquet("data/processed/swebench_verified_primary_submissions.parquet")
+          catalog.to_csv("artifacts/stage1/primary_submissions.csv", index=False)
+          leaderboard = pd.read_csv("artifacts/stage1/leaderboard_bootstrap.csv")
+          tasks = pd.read_csv("artifacts/stage1/task_summary.csv")
+          pairwise = pd.read_csv("artifacts/stage1/pairwise_ordering_probability.csv", index_col=0)
+          power = pd.read_csv("artifacts/stage1/power_top_pair.csv")
+          reproduction = pd.read_csv("artifacts/stage1/score_reproduction.csv")
+
+          top = leaderboard.iloc[0]
+          second = leaderboard.iloc[1]
+          order_frequency = float(pairwise.loc[str(top.system_id), str(second.system_id)])
+          high_disagreement = int((tasks["disagreement"] >= 0.9).sum())
+          score_mismatch = int((~reproduction["resolved_count_matches"].astype(bool)).sum())
+          reported = reproduction[reproduction["reported_score_available"].astype(bool)]
+          reported_mismatch = int((~reported["reported_score_matches"].astype(bool)).sum())
+          reached = power.loc[power["power_mcnemar_exact"] >= 0.8, "n_tasks"]
+          power_80 = "not reached in simulated range" if reached.empty else str(int(reached.iloc[0]))
+
+          lines = [
+              "# Stage 1 frozen snapshot",
+              "",
+              "> Generated from the pinned source revisions in `configs/swebench_verified_stage1.yaml`.",
+              "",
+              "## Snapshot facts",
+              "",
+              f"- Primary single-attempt submissions: **{len(leaderboard)}**.",
+              f"- Benchmark tasks in the paired primary analysis: **{int(top.n_tasks)}**.",
+              f"- Highest point estimate in this frozen cohort: `{top.system_id}` at **{top.score:.1%}** "
+              f"(task-bootstrap 95% interval **{top.score_ci_lower:.1%}–{top.score_ci_upper:.1%}**).",
+              f"- Second-highest point estimate: `{second.system_id}` at **{second.score:.1%}** "
+              f"(95% interval **{second.score_ci_lower:.1%}–{second.score_ci_upper:.1%}**).",
+              f"- In paired task bootstrap samples, the first point-estimate system ranks above the second "
+              f"with tie-splitting frequency **{order_frequency:.3f}**. This is a resampling statistic, not a posterior probability of intrinsic superiority.",
+              f"- Tasks with normalized cross-system disagreement >= 0.9: **{high_disagreement}/{len(tasks)}**.",
+              f"- Reconstructed resolved-count mismatches: **{score_mismatch}**; independently reported-score mismatches where metadata were available: **{reported_mismatch}**.",
+              f"- For the top point-estimate pair, the first simulated task count reaching >=80% exact-McNemar detection power: **{power_80}**.",
+              "",
+              "## Interpretation boundary",
+              "",
+              "These results quantify **task-sampling uncertainty** for a frozen public leaderboard cohort. They do **not** estimate same-system run-to-run stochasticity. Public submissions are not treated as independent reruns of a frozen agent configuration.",
+              "",
+              "## Generated artifacts",
+              "",
+              "- `leaderboard_bootstrap.csv`",
+              "- `pairwise_ordering_probability.csv`",
+              "- `task_summary.csv`",
+              "- `power_top_pair.csv` and `.png`",
+              "- `figures/fig01_score_intervals.png`",
+              "- `figures/fig02_rank_intervals.png`",
+              "- `figures/fig03_pairwise_ordering.png`",
+              "- `figures/fig04_task_disagreement.png`",
+              "- `primary_submissions.csv`",
+              "- `score_reproduction.csv`",
+              "- `provenance.json`",
+              "",
+          ]
+          Path("artifacts/stage1/SNAPSHOT.md").write_text("\n".join(lines), encoding="utf-8")
+          PY
+
+      - name: Upload full Stage 1 artifact bundle
+        uses: actions/upload-artifact@v4
+        with:
+          name: stage1-swebench-verified
+          path: artifacts/stage1
+          if-no-files-found: error
+
+      - name: Commit derived Stage 1 results to main
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add artifacts/stage1
+          if git diff --cached --quiet; then
+            echo "No derived Stage 1 changes to commit."
+            exit 0
+          fi
+          git commit -m "research: publish frozen SWE-bench Verified Stage 1 results"
+          git push origin HEAD:main
