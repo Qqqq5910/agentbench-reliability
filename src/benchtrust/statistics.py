@@ -107,6 +107,25 @@ def _complete_task_matrix(
     return pivot.astype(float).sort_index(axis=1)
 
 
+def _bootstrap_score_matrix(
+    arr: np.ndarray,
+    *,
+    n_boot: int,
+    rng: np.random.Generator,
+    batch_size: int = 512,
+) -> np.ndarray:
+    """Bootstrap task rows jointly without allocating a 3D task-by-system tensor."""
+
+    n_tasks, n_systems = arr.shape
+    probabilities = np.full(n_tasks, 1.0 / n_tasks)
+    scores = np.empty((n_boot, n_systems), dtype=float)
+    for start in range(0, n_boot, batch_size):
+        stop = min(start + batch_size, n_boot)
+        counts = rng.multinomial(n_tasks, probabilities, size=stop - start)
+        scores[start:stop] = counts @ arr / n_tasks
+    return scores
+
+
 def bootstrap_leaderboard(
     frame: pd.DataFrame,
     *,
@@ -120,7 +139,9 @@ def bootstrap_leaderboard(
     """Estimate score intervals, rank intervals, and pairwise ordering stability.
 
     Only tasks observed for every included system are used. Resampling occurs at the
-    task level, so the paired outcome structure is retained across systems.
+    task level, so the paired outcome structure is retained across systems. Bootstrap
+    samples are evaluated in batches to avoid materializing an ``n_boot x n_tasks x
+    n_systems`` tensor for large leaderboards.
     """
 
     if n_boot < 100:
@@ -137,13 +158,12 @@ def bootstrap_leaderboard(
     systems = matrix.columns.to_list()
     n_tasks, n_systems = arr.shape
     rng = np.random.default_rng(seed)
-    indices = rng.integers(0, n_tasks, size=(n_boot, n_tasks))
-    bootstrap_scores = arr[indices, :].mean(axis=1)
+    bootstrap_scores = _bootstrap_score_matrix(arr, n_boot=n_boot, rng=rng)
 
     alpha = (1.0 - level) / 2.0
     lower = np.quantile(bootstrap_scores, alpha, axis=0)
     upper = np.quantile(bootstrap_scores, 1.0 - alpha, axis=0)
-    ranks = np.vstack([rankdata(-row, method="average") for row in bootstrap_scores])
+    ranks = rankdata(-bootstrap_scores, method="average", axis=1)
     rank_lower = np.quantile(ranks, alpha, axis=0)
     rank_upper = np.quantile(ranks, 1.0 - alpha, axis=0)
 
