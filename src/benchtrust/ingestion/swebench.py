@@ -44,6 +44,32 @@ def _optional_float(value: Any) -> float | None:
         return None
 
 
+def _optional_bool(value: Any) -> bool | None:
+    """Normalize historical boolean-ish metadata while preserving unknown states."""
+
+    if value is None or value == "":
+        return None
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, int) and value in {0, 1}:
+        return bool(value)
+    if isinstance(value, str):
+        normalized = value.strip().lower()
+        if normalized == "true" or normalized.startswith("true ") or normalized.startswith("true("):
+            return True
+        if normalized == "false" or normalized.startswith("false ") or normalized.startswith("false("):
+            return False
+    return None
+
+
+def _raw_text(value: Any) -> str | None:
+    if value is None:
+        return None
+    if isinstance(value, str):
+        return value
+    return json.dumps(value, sort_keys=True, ensure_ascii=False)
+
+
 def catalog_submissions(
     experiments_root: str | Path,
     *,
@@ -55,6 +81,11 @@ def catalog_submissions(
     artifacts. It does not imply that two entries with similar names are repeated
     independent runs of the same system, so every directory is retained as a distinct
     submission identity.
+
+    Historical metadata are schema-drifted: fields such as ``checked`` and open-source
+    flags can be booleans in some entries and explanatory strings in others. Typed
+    normalized columns are emitted alongside ``*_raw`` text so Parquet schemas remain
+    stable without discarding the original source value.
     """
 
     root = Path(experiments_root)
@@ -79,6 +110,9 @@ def catalog_submissions(
             models = [models]
         assets = metadata.get("assets") or {}
         attempts_raw = system.get("attempts")
+        checked_raw = tags.get("checked")
+        os_system_raw = tags.get("os_system")
+        os_model_raw = tags.get("os_model")
 
         rows.append(
             {
@@ -93,10 +127,13 @@ def catalog_submissions(
                 "model_display": tags.get("model_display"),
                 "model_org": tags.get("model_org"),
                 "attempts": _optional_int(attempts_raw),
-                "attempts_raw": None if attempts_raw is None else str(attempts_raw),
-                "checked": tags.get("checked"),
-                "open_source_system": tags.get("os_system"),
-                "open_source_model": tags.get("os_model"),
+                "attempts_raw": _raw_text(attempts_raw),
+                "checked": _optional_bool(checked_raw),
+                "checked_raw": _raw_text(checked_raw),
+                "open_source_system": _optional_bool(os_system_raw),
+                "open_source_system_raw": _raw_text(os_system_raw),
+                "open_source_model": _optional_bool(os_model_raw),
+                "open_source_model_raw": _raw_text(os_model_raw),
                 "resolved_count": len(results.get("resolved") or []),
                 "no_generation_count": len(results.get("no_generation") or []),
                 "no_logs_count": len(results.get("no_logs") or []),
