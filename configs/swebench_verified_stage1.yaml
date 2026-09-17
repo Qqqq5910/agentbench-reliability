@@ -1,0 +1,29 @@
+benchmark: swe-bench
+split: verified
+snapshot_date: 2026-09-17
+
+task_dataset:
+  repo_id: SWE-bench/SWE-bench_Verified
+  revision: 78f471bf655a3137b2e8a75af1501690ec009ec3
+  filename: data/test-00000-of-00001.parquet
+  sha256: 030cfd7f2a704c4c0226e7f104c725a3b41230b1d3517f9c915ad7ea5be3fa25
+  expected_tasks: 500
+
+experiments_registry:
+  repository: https://github.com/SWE-bench/experiments
+  revision: 40f164d5b8f1d249bf95a6df8b74b577fd8e519d
+
+analysis:
+  bootstrap_samples: 10000
+  bootstrap_seed: 20260917
+  confidence_level: 0.95
+  power_simulations: 10000
+  power_seed: 20260917
+  benchmark_sizes:
+    - 25
+    - 50
+    - 100
+    - 200
+    - 500
+    - 1000
+    - 2000
