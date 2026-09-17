@@ -29,6 +29,8 @@ dev = [
   "pytest>=8.3",
   "ruff>=0.6",
   "mypy>=1.11",
+]
+research = [
   "jupyterlab>=4.2",
 ]
 
