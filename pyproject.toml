@@ -31,6 +31,7 @@ dev = [
   "mypy>=1.11",
 ]
 research = [
+  "huggingface_hub>=0.27",
   "jupyterlab>=4.2",
 ]
 
