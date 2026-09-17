@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import json
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -29,7 +29,7 @@ def build_manifest(
 ) -> dict[str, Any]:
     """Build a machine-readable provenance manifest for a frozen analysis snapshot."""
 
-    timestamp = created_at or datetime.now(timezone.utc)
+    timestamp = created_at or datetime.now(UTC)
     if timestamp.tzinfo is None:
         raise ValueError("created_at must be timezone-aware")
 
@@ -50,7 +50,7 @@ def build_manifest(
         "schema_version": 1,
         "benchmark": benchmark,
         "benchmark_split": benchmark_split,
-        "created_at_utc": timestamp.astimezone(timezone.utc).isoformat(),
+        "created_at_utc": timestamp.astimezone(UTC).isoformat(),
         "sources": sources,
         "files": file_records,
     }
