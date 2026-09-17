@@ -1,8 +1,9 @@
 from __future__ import annotations
 
+from collections.abc import Iterable
 import json
 from pathlib import Path
-from typing import Any, Iterable
+from typing import Any
 
 import pandas as pd
 import yaml
