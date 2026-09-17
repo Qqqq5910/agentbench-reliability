@@ -66,6 +66,7 @@ def catalog_submissions(
                 "benchmark": "swe-bench",
                 "split": split,
                 "display_name": info.get("name"),
+                "reported_score_percent": info.get("resolved"),
                 "agent": tags.get("agent"),
                 "agent_org": tags.get("agent_org"),
                 "model_ids": json.dumps(models, ensure_ascii=False),
@@ -155,3 +156,54 @@ def load_submission_outcomes(
         )
 
     return pd.DataFrame(rows)
+
+
+def reproduce_submission_scores(
+    catalog: pd.DataFrame,
+    outcomes: pd.DataFrame,
+    *,
+    tolerance_percent: float = 1e-6,
+) -> pd.DataFrame:
+    """Recompute submission scores from task outcomes and compare official metadata.
+
+    The reconstructed score is independent of `info.resolved` in metadata. A row is
+    marked as matching only when an official reported score is present and its absolute
+    difference from the reconstructed percentage is within `tolerance_percent`.
+    """
+
+    required_catalog = {"submission_id", "reported_score_percent", "resolved_count"}
+    required_outcomes = {"submission_id", "task_id", "resolved"}
+    missing_catalog = required_catalog - set(catalog.columns)
+    missing_outcomes = required_outcomes - set(outcomes.columns)
+    if missing_catalog:
+        raise ValueError(f"catalog missing required columns: {sorted(missing_catalog)}")
+    if missing_outcomes:
+        raise ValueError(f"outcomes missing required columns: {sorted(missing_outcomes)}")
+    if tolerance_percent < 0:
+        raise ValueError("tolerance_percent must be non-negative")
+    if outcomes.duplicated(["submission_id", "task_id"]).any():
+        raise ValueError("outcomes contain duplicate submission-task pairs")
+    non_missing = outcomes["resolved"].dropna()
+    if not non_missing.isin([0, 1, False, True]).all():
+        raise ValueError("resolved must contain only binary 0/1 values")
+
+    grouped = (
+        outcomes.groupby("submission_id", sort=False)["resolved"]
+        .agg(reconstructed_resolved_count="sum", n_tasks="size")
+        .reset_index()
+    )
+    grouped["reconstructed_score_percent"] = (
+        100.0 * grouped["reconstructed_resolved_count"] / grouped["n_tasks"]
+    )
+
+    result = catalog.merge(grouped, on="submission_id", how="left", validate="one_to_one")
+    result["resolved_count_matches"] = (
+        result["resolved_count"] == result["reconstructed_resolved_count"]
+    )
+    reported = pd.to_numeric(result["reported_score_percent"], errors="coerce")
+    result["score_difference_percent"] = result["reconstructed_score_percent"] - reported
+    result["reported_score_available"] = reported.notna()
+    result["reported_score_matches"] = result["reported_score_available"] & (
+        result["score_difference_percent"].abs() <= tolerance_percent
+    )
+    return result
