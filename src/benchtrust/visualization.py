@@ -100,7 +100,11 @@ def plot_pairwise_ordering(
         .astype(str)
         .tolist()
     )
-    missing = [system for system in systems if system not in pairwise.index or system not in pairwise]
+    missing = [
+        system
+        for system in systems
+        if system not in pairwise.index or system not in pairwise
+    ]
     if missing:
         raise ValueError(f"pairwise matrix missing systems: {missing[:5]}")
     matrix = pairwise.loc[systems, systems].to_numpy(dtype=float)
