@@ -3,7 +3,11 @@ from pathlib import Path
 
 import yaml
 
-from benchtrust.ingestion.swebench import catalog_submissions, load_submission_outcomes
+from benchtrust.ingestion.swebench import (
+    catalog_submissions,
+    load_submission_outcomes,
+    reproduce_submission_scores,
+)
 
 
 def _write_submission(root: Path) -> Path:
@@ -12,7 +16,7 @@ def _write_submission(root: Path) -> Path:
     (submission / "metadata.yaml").write_text(
         yaml.safe_dump(
             {
-                "info": {"name": "Demo Agent"},
+                "info": {"name": "Demo Agent", "resolved": 100.0 / 3.0},
                 "assets": {"logs": "https://example.com/logs"},
                 "tags": {
                     "agent": "Demo",
@@ -47,6 +51,7 @@ def test_catalog_submissions(tmp_path: Path) -> None:
     assert catalog.loc[0, "submission_id"] == "20260101_demo"
     assert catalog.loc[0, "resolved_count"] == 1
     assert catalog.loc[0, "agent"] == "Demo"
+    assert catalog.loc[0, "reported_score_percent"] == 100.0 / 3.0
 
 
 def test_load_submission_outcomes_expands_full_universe(tmp_path: Path) -> None:
@@ -57,3 +62,14 @@ def test_load_submission_outcomes_expands_full_universe(tmp_path: Path) -> None:
     assert indexed.loc["task-2", "status"] == "no_generation"
     assert indexed.loc["task-3", "status"] == "unresolved"
     assert indexed.loc["task-3", "resolved"] == 0
+
+
+def test_reproduce_submission_scores_matches_independent_metadata(tmp_path: Path) -> None:
+    submission = _write_submission(tmp_path)
+    catalog = catalog_submissions(tmp_path)
+    outcomes = load_submission_outcomes(submission, ["task-1", "task-2", "task-3"])
+    result = reproduce_submission_scores(catalog, outcomes)
+    assert result.loc[0, "reconstructed_resolved_count"] == 1
+    assert result.loc[0, "resolved_count_matches"]
+    assert result.loc[0, "reported_score_matches"]
+    assert abs(result.loc[0, "score_difference_percent"]) < 1e-9
