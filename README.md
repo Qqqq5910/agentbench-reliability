@@ -2,98 +2,150 @@
 
 > **One Run Is Not Enough:** Measuring the statistical reliability, uncertainty, and ranking stability of AI coding-agent benchmarks.
 
-AI coding-agent leaderboards usually compress evaluation into a single score. This project asks a more fundamental question: **how much should we trust small score differences and rank orderings when agents, tasks, and evaluation runs are stochastic?**
+AI coding-agent leaderboards report precise-looking scores and ranks. This project asks a more fundamental question: **how much of that ordering should we actually trust?**
 
-The goal is to build an open, reproducible research framework for measuring benchmark uncertainty rather than treating leaderboard scores as exact quantities.
+The project separates two sources of uncertainty that are often conflated:
+
+- **task-sampling uncertainty** — how leaderboard conclusions change when the evaluated task set changes;
+- **run-to-run stochasticity** — how the same frozen agent/model configuration changes when the same task is rerun independently.
+
+Stage 1 studies the first problem with public coding-agent benchmark data. Stage 2 will measure the second with a controlled repeated-run experiment. Public submissions are **not** treated as repeated runs unless their metadata supports that interpretation.
 
 ## Research questions
 
 1. **Run-to-run reliability** — How often does the same agent produce different outcomes on the same task across repeated runs?
-2. **Rank stability** — When two agents differ by only a few percentage points, how often is that ordering statistically distinguishable?
-3. **Task instability** — Which task characteristics are associated with high run-to-run variance?
-4. **Benchmark sample size** — How many tasks are needed to reliably distinguish agents with small performance gaps?
-5. **Breadth vs. repetition** — Under a fixed evaluation budget, is it better to evaluate more unique tasks once or fewer tasks multiple times?
+2. **Rank stability** — When systems differ by only a few percentage points, how stable is their ordering under task resampling?
+3. **Task instability** — Which tasks create the most disagreement between systems, and later, within the same system across repeated runs?
+4. **Benchmark sample size** — How many tasks are needed to distinguish realistic performance gaps with useful precision?
+5. **Breadth vs. repetition** — Under a fixed evaluation budget, when should benchmark designers prefer more unique tasks versus repeated runs?
 
-## Main outputs
+## Current implementation
 
-This repository is designed to produce four reusable artifacts:
+`benchtrust` now includes a reproducible Stage 1 analysis core:
 
-- **A multi-run benchmark dataset** with repeated outcomes for the same agent-task pairs.
-- **A reproducible statistical analysis pipeline** for confidence intervals, rank uncertainty, variance decomposition, and power analysis.
-- **`benchtrust`**, a small Python package for reliability analysis of arbitrary AI benchmarks.
-- **A research report / preprint** documenting methods, results, limitations, and recommendations for benchmark designers.
+- task-level percentile bootstrap confidence intervals;
+- paired score-difference bootstrap that preserves task alignment;
+- bootstrap leaderboard rank distributions;
+- pairwise ordering-stability matrices;
+- task solve-rate, disagreement, and entropy summaries;
+- paired benchmark-size simulations based on the empirical joint outcome distribution and exact McNemar tests;
+- validation of tidy system-task outcome tables;
+- an ingestion adapter for the official `SWE-bench/experiments` repository;
+- a CLI, unit tests, Ruff linting, and GitHub Actions CI.
 
-## Study design
+**No empirical research conclusion is claimed yet.** The next milestone is to freeze an official SWE-bench Verified snapshot, reproduce reported scores, and generate the first Stage 1 figures.
 
-The project has two stages.
+## Quick start
 
-### Stage 1 — Public-data baseline
+```bash
+python -m venv .venv
+source .venv/bin/activate  # Windows: .venv\Scripts\activate
+python -m pip install -e ".[dev]"
 
-Use publicly available coding-agent benchmark submissions and metadata to establish the baseline leaderboard, task-level agreement patterns, score uncertainty under task resampling, and benchmark power characteristics.
+ruff check .
+pytest -q
+```
 
-This stage intentionally separates **task-sampling uncertainty** from **true run-to-run stochasticity**. Public leaderboard submissions are useful for the former, but they should not be misrepresented as repeated independent runs of the same system unless the metadata actually supports that interpretation.
+The analysis table uses one row per system-task outcome:
 
-### Stage 2 — Controlled multi-run experiment
+```text
+system_id,task_id,resolved
+agent_a,task_001,1
+agent_a,task_002,0
+agent_b,task_001,1
+agent_b,task_002,1
+```
 
-Run a selected set of benchmark tasks repeatedly under controlled conditions:
+Validate and analyze it with:
 
-- same task
-- same agent configuration
-- same model/version
-- fixed evaluation environment
-- repeated independent runs
+```bash
+benchtrust validate data/processed/outcomes.parquet
+benchtrust analyze data/processed/outcomes.parquet --output-dir artifacts/analysis
+benchtrust power data/processed/outcomes.parquet agent_a agent_b
+```
 
-The primary outcome is task resolution (`resolved ∈ {0,1}`), with secondary measurements such as trajectory length, tool-call count, token usage, wall-clock time, and cost when available.
+## SWE-bench ingestion
 
-## Statistical plan
+The initial public-data source is the official repository:
 
-Planned methods include:
+- `https://github.com/SWE-bench/experiments`
 
-- paired bootstrap confidence intervals
-- cluster bootstrap over tasks
-- pairwise difference intervals
-- rank-stability simulation
-- permutation / randomization tests where appropriate
-- hierarchical logistic regression
-- variance decomposition
-- mixed-effects models
-- Monte Carlo power analysis
-- sensitivity analyses across task subsets and benchmark sizes
+Recent SWE-bench leaderboard entries store `metadata.yaml` and result summaries in the experiments repository while larger artifacts may live in the submitter's public repository. Older entries may point to the public SWE-bench submissions bucket. The ingestion code preserves each leaderboard directory as a distinct `submission_id`; similar submission names are not collapsed into assumed replicates.
 
-A central principle is to report **uncertainty around rankings**, not just point estimates.
+Given a local checkout and a trusted task-universe file containing `task_id`, normalize the data with:
+
+```bash
+benchtrust ingest-swebench \
+  /path/to/experiments \
+  /path/to/swebench_verified_task_ids.csv \
+  --split verified \
+  --output-dir data/processed
+```
+
+This writes a submission catalog and a complete submission-by-task outcome table in Parquet format.
+
+## Stage 1 statistical design
+
+For systems evaluated on the same tasks, analyses preserve task pairing. The baseline workflow is:
+
+1. reproduce aggregate scores from task-level outcomes;
+2. bootstrap tasks jointly across systems;
+3. estimate score and rank uncertainty;
+4. measure pairwise ordering stability;
+5. identify tasks with high cross-system disagreement;
+6. simulate how benchmark size changes detection power and rank reversals.
+
+The paired power simulator uses the observed 2x2 joint outcome distribution for two systems rather than pretending their outcomes are independent Bernoulli draws. Its conclusions are therefore conditional on the observed task population and system pair.
+
+## Stage 2 — controlled multi-run experiment
+
+After Stage 1 identifies the precision requirements, the project will freeze a controlled experiment with:
+
+- the same benchmark task;
+- the same agent commit and configuration;
+- the same exact model/version;
+- a fixed evaluation environment;
+- multiple independent executions.
+
+Only those data will be used to estimate true same-system run-to-run stochasticity.
+
+## Planned outputs
+
+- a frozen public-data Stage 1 snapshot with provenance;
+- publication-ready uncertainty and rank-stability figures;
+- a versioned research report / preprint;
+- a controlled multi-run dataset for Stage 2;
+- the reusable `benchtrust` Python package.
 
 ## Repository structure
 
 ```text
 agentbench-reliability/
+├── .github/workflows/ci.yml
+├── DATA_SCHEMA.md
+├── RESEARCH_PLAN.md
 ├── README.md
+├── docs/
 ├── pyproject.toml
 ├── src/benchtrust/
-├── configs/
-├── data/
-│   ├── raw/
-│   └── processed/
-├── notebooks/
-├── experiments/
-├── reports/
-├── paper/
+│   ├── ingestion/
+│   ├── cli.py
+│   ├── power.py
+│   ├── statistics.py
+│   └── validation.py
 └── tests/
 ```
 
 ## Reproducibility principles
 
-- Raw data are immutable once ingested.
+- Raw source data are immutable once snapshotted.
 - Every processed table is generated from code.
-- Every figure in the report should be reproducible from a scripted analysis.
-- Benchmark versions, model identifiers, agent versions, prompts, environment settings, seeds (when meaningful), and timestamps are recorded.
-- Missingness and failed runs are preserved rather than silently dropped.
-- Confirmatory analyses are separated from exploratory analyses.
+- Figures and report tables must be reproducible from scripted analysis.
+- Benchmark versions, system/model identifiers, source URLs, retrieval dates, and configuration metadata are retained.
+- Missingness and failures are preserved rather than silently dropped.
+- Exploratory analyses are separated from confirmatory Stage 2 analyses.
 
-## Status
-
-**Research foundation in progress.**
-
-The first milestone is to build the public-data ingestion pipeline and produce a statistically rigorous baseline analysis before spending compute on controlled repeated runs.
+See `RESEARCH_PLAN.md`, `DATA_SCHEMA.md`, and `docs/SOURCES.md` for the research protocol and source-of-truth rules.
 
 ## License
 
