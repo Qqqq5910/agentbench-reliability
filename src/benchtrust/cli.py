@@ -22,7 +22,12 @@ from .ingestion.swebench import (
 )
 from .power import paired_power_curve
 from .provenance import build_manifest, write_manifest
-from .stage2 import recommend_replicates, select_stage2_tasks, simulate_replicate_design
+from .stage2 import (
+    recommend_replicates,
+    select_pilot_tasks,
+    select_stage2_tasks,
+    simulate_replicate_design,
+)
 from .statistics import bootstrap_leaderboard, task_summary
 from .validation import validate_outcome_table
 from .visualization import (
@@ -169,6 +174,7 @@ def stage2_design(
     task_summary_path: Path = Path("artifacts/stage1/task_summary.csv"),
     config_path: Path = Path("configs/stage2.yaml"),
     task_output: Path = Path("data/stage2/task_subset.csv"),
+    pilot_output: Path = Path("data/stage2/pilot_task_subset.csv"),
     artifact_dir: Path = Path("artifacts/stage2_design"),
 ) -> None:
     """Freeze the Stage 2 task subset and simulate the required replicate count."""
@@ -176,6 +182,7 @@ def stage2_design(
     config = yaml.safe_load(config_path.read_text(encoding="utf-8")) or {}
     task_config = config.get("task_selection") or {}
     replicate_config = config.get("replicate_design") or {}
+    pilot_config = config.get("pilot_selection") or {}
     seed = int(config.get("seed", 20260921))
 
     task_frame = _read_table(task_summary_path)
@@ -186,6 +193,14 @@ def stage2_design(
         enriched_tasks=int(task_config["enriched_tasks"]),
         disagreement_threshold=float(task_config["disagreement_threshold"]),
         seed=seed,
+    )
+
+    pilot_seed = int(pilot_config.get("seed", seed + 1))
+    pilot = select_pilot_tasks(
+        task_frame,
+        selected,
+        n_tasks=int(pilot_config.get("n_tasks", 12)),
+        seed=pilot_seed,
     )
 
     scenario_config = replicate_config.get("scenarios") or {}
@@ -214,8 +229,10 @@ def stage2_design(
     )
 
     task_output.parent.mkdir(parents=True, exist_ok=True)
+    pilot_output.parent.mkdir(parents=True, exist_ok=True)
     artifact_dir.mkdir(parents=True, exist_ok=True)
     selected.to_csv(task_output, index=False)
+    pilot.to_csv(pilot_output, index=False)
     simulation.to_csv(artifact_dir / "replicate_design.csv", index=False)
 
     component_counts = selected["selection_component"].value_counts()
@@ -246,6 +263,8 @@ def stage2_design(
             f"threshold: **{high_disagreement_count}/{len(selected)}**."
         ),
         f"- Selection seed: **{seed}**.",
+        f"- Pilot tasks excluded from confirmatory analysis: **{len(pilot)}**.",
+        f"- Pilot selection seed: **{pilot_seed}**.",
         f"- Primary replicate-design scenario: **{primary_scenario}**.",
         f"- Recommended replicate count: **{recommendation_text}**.",
         "",
@@ -281,8 +300,8 @@ def stage2_design(
         encoding="utf-8",
     )
     typer.echo(
-        f"Wrote {task_output}, replicate design artifacts to {artifact_dir}; "
-        f"recommended_replicates={recommendation_text}"
+        f"Wrote {task_output}, {pilot_output}, and replicate design artifacts to "
+        f"{artifact_dir}; recommended_replicates={recommendation_text}"
     )
 
 

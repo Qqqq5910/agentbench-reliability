@@ -2,6 +2,7 @@ import pandas as pd
 
 from benchtrust.stage2 import (
     recommend_replicates,
+    select_pilot_tasks,
     select_stage2_tasks,
     simulate_replicate_design,
 )
@@ -96,3 +97,23 @@ def test_recommendation_uses_smallest_candidate_meeting_thresholds() -> None:
     )
     assert recommendation == 5
     assert annotated.loc[1, "meets_primary_precision"]
+
+
+def test_pilot_tasks_are_reproducible_and_disjoint() -> None:
+    frame = _task_summary(80)
+    formal = select_stage2_tasks(
+        frame,
+        total_tasks=24,
+        representative_tasks=16,
+        enriched_tasks=8,
+        disagreement_threshold=0.9,
+        seed=17,
+    )
+    first = select_pilot_tasks(frame, formal, n_tasks=10, seed=19)
+    second = select_pilot_tasks(frame, formal, n_tasks=10, seed=19)
+
+    pd.testing.assert_frame_equal(first, second)
+    assert len(first) == 10
+    assert first["task_id"].nunique() == 10
+    assert not set(first["task_id"]) & set(formal["task_id"])
+    assert first["selection_component"].eq("pilot_excluded_from_confirmatory").all()

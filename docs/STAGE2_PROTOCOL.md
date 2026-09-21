@@ -1,220 +1,170 @@
 # Stage 2 controlled repeated-run protocol
 
-Status: **draft pre-registration**. This document freezes the analysis design that can be specified before Stage 1 finishes. The task subset and exact system configurations must not be finalized until a successful frozen Stage 1 artifact exists.
+Status: **PARTIALLY FROZEN** — the formal task subset and replicate count are frozen.
+Exact system configurations remain candidate-only until the non-confirmatory pilot gate passes.
 
 ## Objective
 
-Measure **run-to-run stochasticity** of coding agents separately from the **task-sampling uncertainty** already studied in Stage 1.
+Measure **run-to-run stochasticity** of coding agents separately from the
+**task-sampling uncertainty** quantified in Stage 1.
 
-Stage 1 asks: if the benchmark task sample changed, how stable would leaderboard scores and ranks be?
+Stage 1 asks whether leaderboard results are stable when the benchmark task sample
+changes. Stage 2 asks whether the same frozen coding-agent configuration gives stable
+results when the same task is executed repeatedly.
 
-Stage 2 asks: if we rerun the same frozen agent configuration on the same task, how often does the outcome change?
+These uncertainty sources remain separate throughout the analysis.
 
-These two uncertainty sources must never be pooled or described as interchangeable.
+## Frozen formal task subset
 
-## Primary estimands
+The formal confirmatory subset is frozen in `data/stage2/task_subset.csv`.
 
-For each frozen system configuration:
+- SWE-bench Verified universe: 500 tasks.
+- Formal Stage 2 subset: **120 tasks**.
+- Representative component: **80 tasks**, sampled proportionally by repository.
+- High-disagreement enrichment: **40 additional tasks** sampled from tasks with
+  Stage 1 disagreement >= 0.90.
+- Selection seed: **20260921**.
+- The generated subset contains **58/120** tasks with Stage 1 disagreement >= 0.90
+  because the representative component also contains high-disagreement tasks.
 
-1. Per-task solve probability across repeated executions.
-2. Mean benchmark solve rate across repeated executions.
-3. Between-run variance of aggregate benchmark score.
-4. Probability that a pairwise ordering reverses across repeated runs.
-5. Reliability of a reported single-run score as an estimator of repeated-run performance.
+The deterministic selection implementation is in `src/benchtrust/stage2.py`.
+No task may be added or removed based on Stage 2 outcomes.
 
-For each system pair:
+## Frozen replicate count
 
-1. Paired difference in solve probability on the same tasks.
-2. Probability that system A outperforms system B across replicated benchmark runs.
-3. Probability that the sign of the observed score difference changes across reruns.
+The candidate replicate counts were 3, 5, 7, and 10. The pre-registered precision
+gate is defined in `configs/stage2.yaml`; design results are published in
+`artifacts/stage2_design/replicate_design.csv`.
+
+The frozen formal replicate count is **10 valid repeated executions per system-task cell**.
+
+Under the primary moderate-stochasticity design scenario:
+
+| Replicates | Score p95 abs. error | Run-SD median rel. error | Paired-diff CI half-width | Unstable detection | Rank-reversal abs. error | Gate |
+|---:|---:|---:|---:|---:|---:|:---:|
+| 3 | 0.036 | 0.350 | 0.095 | 0.595 | 0.232 | no |
+| 5 | 0.028 | 0.247 | 0.053 | 0.794 | 0.168 | no |
+| 7 | 0.024 | 0.201 | 0.041 | 0.887 | 0.089 | no |
+| 10 | 0.021 | 0.161 | 0.032 | 0.952 | 0.068 | yes |
+
+Seven replicates are close, but the paired-difference CI half-width of 0.041 is above
+the frozen 0.040 threshold. The threshold is not relaxed after seeing the simulation.
+
+## Non-confirmatory pilot gate
+
+Environment and adapter validation must not consume or tune against the 120 formal
+tasks. `data/stage2/pilot_task_subset.csv` is generated deterministically from the
+remaining SWE-bench Verified tasks and is guaranteed not to overlap the formal subset.
+
+Pilot design:
+
+- **12 pilot tasks**.
+- **2 pilot repetitions** per candidate system-task cell.
+- Pilot seed: **20260922**.
+- Pilot results are excluded from all confirmatory Stage 2 analyses.
+
+Pilot system-selection criteria are limited to:
+
+- model-adapter compatibility;
+- infrastructure/provider failure rate;
+- runtime;
+- projected cost.
+
+Pilot solve rate, pilot ranking, or any performance-based comparison is forbidden as a
+criterion for keeping or dropping a candidate system.
+
+## Candidate system freeze
+
+Stage 2 is designed around **three candidate scaffolds using one common model** so that
+scaffold-level reliability can be studied without intentionally changing the base model
+between systems.
+
+The candidate definitions live in `configs/stage2_systems.yaml`. They are not yet
+formal systems. A candidate becomes frozen only after the pilot confirms it can run and
+all reproducibility fields are filled.
+
+Required fields before freeze:
+
+- scaffold repository and exact commit;
+- exact model/provider identifier;
+- prompt or prompt-template hash;
+- tool configuration hash;
+- benchmark harness commit;
+- container image digest;
+- reasoning/decoding settings;
+- timeout policy;
+- retry policy;
+- environment identifier.
+
+Two executions count as replicates only when all reproducibility-relevant fields match.
 
 ## Experimental unit and blocking
 
 - Primary experimental unit: one **system × task × replicate** execution.
 - Task is a blocking factor shared across systems.
-- System comparisons must preserve task pairing.
-- Replicates for the same system-task cell must use independent random seeds when the runtime exposes one.
-- Execution order should be randomized within resource constraints to reduce temporal/provider drift confounding.
-
-## System configuration freeze
-
-Stage 2 will evaluate **3–5 configurations**.
-
-A configuration is not just a model name. The frozen record must include:
-
-- agent/scaffold name and version or commit;
-- exact model/provider identifier;
-- system prompt or prompt-template hash;
-- tool configuration;
-- benchmark harness version;
-- container/environment identifier;
-- decoding and reasoning settings when exposed;
-- timeout and retry policy;
-- seed when meaningful;
-- any provider-side mode that can alter behavior.
-
-Two executions are considered replicates only when all reproducibility-relevant fields above are frozen.
-
-## Task subset selection
-
-Task selection is intentionally deferred until the successful Stage 1 snapshot is available.
-
-The selection rule must be scripted and deterministic.
-
-The final subset should include:
-
-1. a representative random component from the full SWE-bench Verified task universe;
-2. a pre-specified enrichment component from tasks with high cross-system disagreement in Stage 1;
-3. no manual cherry-picking based on desired system outcomes.
-
-The exact random seed, sample size, enrichment fraction, and selected task IDs must be written to a frozen config before controlled runs begin.
-
-## Replicate-count selection
-
-Replicate count will be chosen by simulation before compute is spent.
-
-Candidate replicate counts: 3, 5, 7, 10.
-
-The simulation must evaluate at least:
-
-- precision of per-system mean solve rate;
-- precision of between-run standard deviation;
-- power / precision for paired system differences;
-- probability of correctly detecting materially unstable tasks;
-- expected uncertainty in pairwise ordering-reversal probability.
-
-The selected replicate count must be the smallest count meeting the pre-specified precision target, not the count that produces the most favorable result.
+- System comparisons preserve task pairing.
+- Independent seeds are used when the runtime exposes a seed.
+- Execution order is randomized using a frozen seed to reduce temporal/provider drift confounding.
 
 ## Primary outcome
 
-Primary binary outcome:
+- `resolved = 1` when the official SWE-bench evaluation passes.
+- `resolved = 0` for a completed valid agent attempt that fails the task.
+- Infrastructure failures are not silently converted to agent failures.
 
-- `resolved = 1` when the benchmark task passes the official evaluation;
-- `resolved = 0` for a completed agent attempt that fails the benchmark.
+Explicit infrastructure statuses include `infra_error`, `provider_error`, `timeout`,
+`harness_error`, and `invalid_artifact`.
 
-Infrastructure failures are **not** silently converted to unresolved agent attempts.
-
-## Infrastructure failures
-
-Use explicit statuses including:
-
-- `completed`
-- `infra_error`
-- `provider_error`
-- `timeout`
-- `harness_error`
-- `invalid_artifact`
-
-Primary confirmatory analysis excludes executions that never constitute a valid agent attempt because of infrastructure failure.
-
-A sensitivity analysis must report results under a conservative policy that counts selected non-agent failures as unresolved when scientifically defensible.
-
-All retry rules must be frozen before execution.
+The confirmatory analysis excludes executions that never constitute a valid agent
+attempt. A separately labeled conservative sensitivity analysis may count selected
+non-agent failures as unresolved when scientifically defensible.
 
 ## Confirmatory analyses
 
 ### A. Run-to-run score variability
 
-For each system:
-
-- distribution of aggregate solve rate across replicated benchmark runs;
-- mean;
-- standard deviation;
-- 95% interval;
-- minimum and maximum observed replicated score.
+For each system, report the replicated benchmark-score distribution, mean, standard
+deviation, 95% interval, minimum, and maximum.
 
 ### B. Task-level instability
 
-For each system-task cell:
-
-- empirical solve probability;
-- binary entropy;
-- classification as stable-success, stable-failure, or unstable using pre-registered thresholds.
+For each system-task cell, estimate empirical solve probability and binary entropy, then
+apply pre-registered stable-success, stable-failure, and unstable classifications.
 
 ### C. Pairwise replicated comparison
 
-For each system pair:
-
-- paired task difference for each replicate;
-- bootstrap interval preserving task pairing;
-- replicated ordering-reversal frequency;
-- probability that a single observed run gives the opposite ordering from the replicated mean ordering.
+For each system pair, preserve task pairing and report paired differences, intervals,
+ordering-reversal frequency, and the probability that a single observed run gives the
+opposite ordering from the replicated mean ordering.
 
 ### D. Single-run reliability
 
-Estimate how much error is introduced when a leaderboard reports one execution rather than repeated executions.
-
-Report:
-
-- expected absolute deviation of a single-run score from replicated mean;
-- 95th percentile absolute deviation;
-- probability that two near-tied systems swap order because of run stochasticity alone.
-
-## Secondary analyses
-
-Secondary/exploratory analyses may include:
-
-- instability by repository;
-- instability by language;
-- instability by task difficulty;
-- interaction between task-sampling uncertainty and run stochasticity;
-- failure-category analysis;
-- cost/reliability trade-offs;
-- model-family or scaffold-family comparisons.
-
-These must be labeled exploratory.
+Report expected absolute deviation of a single-run score from the replicated mean, the
+95th percentile absolute deviation, and near-tie ordering-swap frequency.
 
 ## Multiple comparisons
 
-Pairwise confirmatory comparisons among the frozen 3–5 systems must use a pre-specified multiplicity adjustment.
+Confirmatory pairwise comparisons use Holm adjustment. Unadjusted descriptive intervals
+may also be published when clearly labeled.
 
-Default: Holm correction across pairwise confirmatory tests.
+## Missingness and stop rule
 
-Unadjusted intervals may also be shown for descriptive purposes, clearly labeled.
+Every missing run must have a reason. Missing outcomes are not imputed in the primary
+analysis.
 
-## Missingness
-
-Every missing run must have a reason.
-
-Do not impute missing agent outcomes unless a separate sensitivity analysis explicitly defines the imputation rule.
-
-The report must include a missingness table by system and failure category.
-
-## Reproducibility requirements
-
-Before controlled execution begins, the repository must contain:
-
-- frozen Stage 2 YAML config;
-- selected task IDs;
-- exact system configurations;
-- replicate count and simulation output used to justify it;
-- environment and harness versions;
-- execution-order randomization seed;
-- retry/failure policy;
-- primary/secondary analysis declarations.
-
-After execution, publish:
-
-- raw run manifest;
-- normalized run table;
-- provenance metadata;
-- analysis script;
-- generated figures;
-- versioned research report.
-
-## Stop rule
-
-Do not inspect interim results to decide whether to add or remove replicates for statistical significance.
-
-If execution must stop for budget, provider, or infrastructure reasons, document the external reason and analyze the frozen completed subset with that limitation stated.
+Replicates must not be added or removed after inspecting significance or leaderboard
+ordering. If execution stops for an external budget/provider/infrastructure reason, the
+reason and frozen completed subset must be documented.
 
 ## Stage 2 entry gate
 
-Controlled compute may begin only when all of the following are true:
+- [x] Stage 1 workflow completed successfully.
+- [x] Stage 1 frozen artifacts published.
+- [x] Deterministic formal task subset committed.
+- [x] Replicate-count simulation committed and **10 replicates** frozen.
+- [x] Non-confirmatory pilot task policy defined.
+- [ ] Pilot compatibility/cost gate completed.
+- [ ] Exact system configurations fully frozen.
+- [ ] Protocol status promoted from **PARTIALLY FROZEN** to **FROZEN**.
 
-1. Stage 1 workflow completes successfully on the current main branch.
-2. Stage 1 frozen artifacts are published.
-3. The task-selection script produces a deterministic task list from the frozen Stage 1 snapshot.
-4. Candidate systems are recorded with exact reproducibility metadata.
-5. Replicate-count simulation is committed.
-6. This protocol is updated from draft to **FROZEN** before the first controlled run.
+Formal controlled compute must not begin until every entry-gate item is checked.

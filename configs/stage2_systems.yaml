@@ -1,0 +1,62 @@
+stage: 2
+status: candidate_pre_pilot
+formal_system_count: 3
+
+common_model:
+  provider: openai
+  model_id: gpt-5.6-terra
+  reasoning_effort: medium
+  endpoint_policy: direct_provider_only
+  api_surface: pending_pilot_adapter_validation
+  status: candidate_pending_pilot
+  verified_on: 2026-09-21
+  documentation: https://platform.openai.com/docs/models/gpt-5.6-terra
+
+systems:
+  - system_id: sweagent_gpt56terra
+    scaffold: SWE-agent
+    repository: SWE-agent/SWE-agent
+    commit: 3ea751c087f32b16e039a2233dd6eefecef325d5
+    status: candidate_pending_pilot
+    prompt_hash: pending
+    tool_config_hash: pending
+    container_digest: pending
+
+  - system_id: openhands_gpt56terra
+    scaffold: OpenHands
+    repository: OpenHands/OpenHands
+    commit: a5eb10d584f4dfbc6ac0fd7043c5b73bc0fa9f8e
+    status: candidate_pending_pilot
+    prompt_hash: pending
+    tool_config_hash: pending
+    container_digest: pending
+
+  - system_id: moatless_gpt56terra
+    scaffold: Moatless
+    repository: aorwall/moatless-tools
+    commit: 011ead57a5c81664e9c45e07e1f50b17e695cc63
+    status: candidate_pending_pilot
+    prompt_hash: pending
+    tool_config_hash: pending
+    container_digest: pending
+
+pilot_selection_policy:
+  allowed_selection_criteria:
+    - model_adapter_compatibility
+    - infrastructure_failure_rate
+    - runtime
+    - projected_cost
+  forbidden_selection_criteria:
+    - pilot_solve_rate
+    - pilot_rank
+    - task_level_performance
+
+required_before_freeze:
+  - benchmark_harness_commit
+  - prompt_hash
+  - tool_config_hash
+  - container_digest
+  - environment_identifier
+  - timeout_policy
+  - retry_policy
+  - provider_api_surface

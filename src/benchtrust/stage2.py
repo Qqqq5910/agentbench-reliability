@@ -127,6 +127,54 @@ def select_stage2_tasks(
     return selected
 
 
+def select_pilot_tasks(
+    task_summary: pd.DataFrame,
+    formal_subset: pd.DataFrame,
+    *,
+    n_tasks: int = 12,
+    seed: int = 20260922,
+) -> pd.DataFrame:
+    """Select deterministic pilot tasks excluded from the formal Stage 2 subset."""
+
+    _validate_task_summary(task_summary)
+    if "task_id" not in formal_subset.columns:
+        raise ValueError("formal subset must contain a task_id column")
+    if n_tasks <= 0:
+        raise ValueError("pilot n_tasks must be positive")
+
+    formal_ids = set(formal_subset["task_id"].dropna().astype(str))
+    frame = task_summary.copy()
+    frame["task_id"] = frame["task_id"].astype(str)
+    frame["repository"] = frame["task_id"].map(_repository_from_task_id)
+    available = frame.loc[~frame["task_id"].isin(formal_ids)].copy()
+    available = available.sort_values(["repository", "task_id"]).reset_index(drop=True)
+    if n_tasks > len(available):
+        raise ValueError("requested pilot subset exceeds tasks outside the formal subset")
+
+    counts = available.groupby("repository", sort=True).size()
+    quotas = _proportional_quotas(counts, n_tasks)
+    rng = np.random.default_rng(seed)
+
+    chosen_indices: list[int] = []
+    for repository in sorted(quotas):
+        quota = quotas[repository]
+        if quota == 0:
+            continue
+        candidates = available.index[available["repository"] == repository].to_numpy()
+        chosen = rng.choice(candidates, size=quota, replace=False)
+        chosen_indices.extend(int(index) for index in chosen)
+
+    pilot = available.loc[sorted(chosen_indices)].copy()
+    pilot["selection_component"] = "pilot_excluded_from_confirmatory"
+    pilot["selection_seed"] = seed
+    pilot = pilot.sort_values(["repository", "task_id"]).reset_index(drop=True)
+
+    if len(pilot) != n_tasks or pilot["task_id"].duplicated().any():
+        raise RuntimeError("Stage 2 pilot selection invariant failed")
+    if set(pilot["task_id"]) & formal_ids:
+        raise RuntimeError("pilot tasks overlap the formal Stage 2 task subset")
+    return pilot
+
 def _calibrated_probabilities(
     difficulty: np.ndarray,
     *,
