@@ -6,6 +6,7 @@ from pathlib import Path
 
 import pandas as pd
 import typer
+import yaml
 
 from .cohorts import select_single_attempt_cohort
 from .ingestion.huggingface import (
@@ -21,6 +22,7 @@ from .ingestion.swebench import (
 )
 from .power import paired_power_curve
 from .provenance import build_manifest, write_manifest
+from .stage2 import recommend_replicates, select_stage2_tasks, simulate_replicate_design
 from .statistics import bootstrap_leaderboard, task_summary
 from .validation import validate_outcome_table
 from .visualization import (
@@ -160,6 +162,128 @@ def power(
     figure_path = output_path.with_suffix(".png")
     plot_power_curve(result, figure_path)
     typer.echo(f"Wrote {output_path} and {figure_path}")
+
+
+@app.command("stage2-design")
+def stage2_design(
+    task_summary_path: Path = Path("artifacts/stage1/task_summary.csv"),
+    config_path: Path = Path("configs/stage2.yaml"),
+    task_output: Path = Path("data/stage2/task_subset.csv"),
+    artifact_dir: Path = Path("artifacts/stage2_design"),
+) -> None:
+    """Freeze the Stage 2 task subset and simulate the required replicate count."""
+
+    config = yaml.safe_load(config_path.read_text(encoding="utf-8")) or {}
+    task_config = config.get("task_selection") or {}
+    replicate_config = config.get("replicate_design") or {}
+    seed = int(config.get("seed", 20260921))
+
+    task_frame = _read_table(task_summary_path)
+    selected = select_stage2_tasks(
+        task_frame,
+        total_tasks=int(task_config["total_tasks"]),
+        representative_tasks=int(task_config["representative_tasks"]),
+        enriched_tasks=int(task_config["enriched_tasks"]),
+        disagreement_threshold=float(task_config["disagreement_threshold"]),
+        seed=seed,
+    )
+
+    scenario_config = replicate_config.get("scenarios") or {}
+    scenarios = {
+        str(name): float(values["temperature"])
+        for name, values in scenario_config.items()
+    }
+    simulation = simulate_replicate_design(
+        selected,
+        candidate_replicates=[int(value) for value in replicate_config["candidates"]],
+        scenarios=scenarios,
+        target_rate_a=float(replicate_config["target_rate_a"]),
+        target_rate_b=float(replicate_config["target_rate_b"]),
+        n_sim=int(replicate_config["n_sim"]),
+        seed=seed,
+    )
+    thresholds = {
+        str(key): float(value)
+        for key, value in (replicate_config.get("thresholds") or {}).items()
+    }
+    primary_scenario = str(replicate_config["primary_scenario"])
+    recommendation, simulation = recommend_replicates(
+        simulation,
+        primary_scenario=primary_scenario,
+        thresholds=thresholds,
+    )
+
+    task_output.parent.mkdir(parents=True, exist_ok=True)
+    artifact_dir.mkdir(parents=True, exist_ok=True)
+    selected.to_csv(task_output, index=False)
+    simulation.to_csv(artifact_dir / "replicate_design.csv", index=False)
+
+    component_counts = selected["selection_component"].value_counts()
+    high_disagreement_count = int(
+        (selected["disagreement"] >= float(task_config["disagreement_threshold"])).sum()
+    )
+    recommendation_text = (
+        "not reached by candidates"
+        if recommendation is None
+        else str(recommendation)
+    )
+    primary_rows = simulation.loc[simulation["scenario"] == primary_scenario].copy()
+
+    lines = [
+        "# Stage 2 design snapshot",
+        "",
+        f"- Frozen task subset: **{len(selected)}** tasks.",
+        (
+            "- Representative component: "
+            f"**{int(component_counts.get('representative', 0))}** tasks."
+        ),
+        (
+            "- High-disagreement enrichment: "
+            f"**{int(component_counts.get('high_disagreement_enrichment', 0))}** tasks."
+        ),
+        (
+            "- Selected tasks with Stage 1 disagreement at or above the enrichment "
+            f"threshold: **{high_disagreement_count}/{len(selected)}**."
+        ),
+        f"- Selection seed: **{seed}**.",
+        f"- Primary replicate-design scenario: **{primary_scenario}**.",
+        f"- Recommended replicate count: **{recommendation_text}**.",
+        "",
+        "## Primary-scenario precision table",
+        "",
+        "| replicates | score p95 abs error | run-SD median rel. error | "
+        "paired-diff CI half-width | unstable detection | rank-reversal abs error | meets gate |",
+        "|---:|---:|---:|---:|---:|---:|:---:|",
+    ]
+    for row in primary_rows.itertuples(index=False):
+        lines.append(
+            f"| {int(row.replicates)} | {row.score_abs_error_p95:.3f} | "
+            f"{row.run_sd_median_relative_error:.3f} | "
+            f"{row.paired_diff_ci_median_halfwidth:.3f} | "
+            f"{row.unstable_detection_mean:.3f} | "
+            f"{row.rank_reversal_median_abs_error:.3f} | "
+            f"{'yes' if bool(row.meets_primary_precision) else 'no'} |"
+        )
+    lines.extend(
+        [
+            "",
+            "## Interpretation boundary",
+            "",
+            "This is a design simulation, not evidence of observed within-system rerun "
+            "stochasticity. Stage 1 cross-system solve rates are used only to preserve a "
+            "realistic task-difficulty shape. Actual run-to-run stochasticity will be "
+            "estimated only after controlled Stage 2 repetitions are collected.",
+            "",
+        ]
+    )
+    (artifact_dir / "DESIGN_SNAPSHOT.md").write_text(
+        "\n".join(lines),
+        encoding="utf-8",
+    )
+    typer.echo(
+        f"Wrote {task_output}, replicate design artifacts to {artifact_dir}; "
+        f"recommended_replicates={recommendation_text}"
+    )
 
 
 @app.command("fetch-swebench-verified")
