@@ -1,0 +1,13 @@
+task_id,solve_rate,n_systems,disagreement,entropy_bits,repository,selection_component,selection_seed
+astropy__astropy-7336,0.8444444444444444,45,0.5254320987654321,0.6235702082127974,astropy,pilot_excluded_from_confirmatory,20260922
+django__django-13195,0.0444444444444444,45,0.1698765432098765,0.2623112196143366,django,pilot_excluded_from_confirmatory,20260922
+django__django-16255,0.9111111111111112,45,0.3239506172839507,0.432750158788754,django,pilot_excluded_from_confirmatory,20260922
+django__django-16454,0.2444444444444444,45,0.7387654320987654,0.8023534428291901,django,pilot_excluded_from_confirmatory,20260922
+django__django-16493,0.7777777777777778,45,0.691358024691358,0.7642045065086203,django,pilot_excluded_from_confirmatory,20260922
+django__django-16901,0.6888888888888889,45,0.8572839506172839,0.8944518845341283,django,pilot_excluded_from_confirmatory,20260922
+matplotlib__matplotlib-25122,0.8222222222222222,45,0.5846913580246914,0.6751914401458716,matplotlib,pilot_excluded_from_confirmatory,20260922
+pydata__xarray-7229,0.0,45,0.0,0.0,pydata,pilot_excluded_from_confirmatory,20260922
+scikit-learn__scikit-learn-13142,0.7333333333333333,45,0.7822222222222224,0.8366407419411672,scikit-learn,pilot_excluded_from_confirmatory,20260922
+sphinx-doc__sphinx-9281,0.6,45,0.96,0.9709505944546686,sphinx-doc,pilot_excluded_from_confirmatory,20260922
+sympy__sympy-16766,0.8666666666666667,45,0.4622222222222221,0.5665095065529052,sympy,pilot_excluded_from_confirmatory,20260922
+sympy__sympy-20154,0.8,45,0.6399999999999999,0.7219280948873623,sympy,pilot_excluded_from_confirmatory,20260922

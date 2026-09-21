@@ -5,6 +5,8 @@
 - High-disagreement enrichment: **40** tasks.
 - Selected tasks with Stage 1 disagreement at or above the enrichment threshold: **58/120**.
 - Selection seed: **20260921**.
+- Pilot tasks excluded from confirmatory analysis: **12**.
+- Pilot selection seed: **20260922**.
 - Primary replicate-design scenario: **moderate**.
 - Recommended replicate count: **10**.
 
