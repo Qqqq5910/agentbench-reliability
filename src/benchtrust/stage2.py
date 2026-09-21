@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-import math
 from collections.abc import Mapping, Sequence
+import math
 
 import numpy as np
 import pandas as pd
