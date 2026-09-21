@@ -387,12 +387,14 @@ def stage2_pilot_plan(
     lines.extend(
         [
             "",
-            "This is a no-model-call preflight. Pilot solve outcomes are not generated or inspected.",
+            "This is a no-model-call preflight. Pilot solve outcomes are not generated "
+            "or inspected.",
             "",
         ]
     )
     snapshot_path.write_text("\n".join(lines), encoding="utf-8")
     typer.echo(f"Wrote {output_path} and {snapshot_path}")
+
 
 @app.command("fetch-swebench-verified")
 def fetch_swebench_verified(

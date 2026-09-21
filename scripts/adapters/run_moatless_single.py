@@ -22,7 +22,8 @@ def main() -> None:
     if not flow_path.exists():
         raise SystemExit(f"missing Moatless flow: {flow_path}")
 
-    work_dir = Path(os.environ.get("BENCHTRUST_RUN_DIR", f".benchtrust-moatless/{args.run_id}")).resolve()
+    default_run_dir = f".benchtrust-moatless/{args.run_id}"
+    work_dir = Path(os.environ.get("BENCHTRUST_RUN_DIR", default_run_dir)).resolve()
     work_dir.mkdir(parents=True, exist_ok=True)
 
     flow = json.loads(flow_path.read_text(encoding="utf-8"))
@@ -41,11 +42,11 @@ def main() -> None:
     os.chdir(repo_dir)
     os.environ["MOATLESS_DIR"] = str(work_dir / "moatless")
 
+    import moatless.settings as settings
     from moatless.evaluation.manager import EvaluationManager
     from moatless.flow.manager import FlowManager
     from moatless.runner.docker_runner import DockerRunner
     from moatless.runner.job_wrappers import run_evaluation_instance
-    import moatless.settings as settings
 
     async def run() -> None:
         storage = await settings.get_storage()

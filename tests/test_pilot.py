@@ -86,9 +86,12 @@ def test_validate_manifest_and_build_commands() -> None:
     plan = build_pilot_command_plan(manifest, config, checkout_root=Path("external"))
     assert len(plan) == 12
     assert plan["command"].str.contains("gpt-5.6-terra").all()
-    assert plan.loc[plan["system_id"] == "swe", "command"].str.contains("sweagent run-batch").all()
-    assert plan.loc[plan["system_id"] == "mini", "command"].str.contains("mini-extra").all()
-    assert plan.loc[plan["system_id"] == "moat", "command"].str.contains("run_moatless_single.py").all()
+    swe_commands = plan.loc[plan["system_id"] == "swe", "command"]
+    assert swe_commands.str.contains("sweagent run-batch").all()
+    mini_commands = plan.loc[plan["system_id"] == "mini", "command"]
+    assert mini_commands.str.contains("mini-extra").all()
+    moat_commands = plan.loc[plan["system_id"] == "moat", "command"]
+    assert moat_commands.str.contains("run_moatless_single.py").all()
 
 
 def test_manifest_rejects_wrong_model() -> None:

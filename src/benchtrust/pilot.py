@@ -8,7 +8,6 @@ from pathlib import Path
 
 import pandas as pd
 
-
 REQUIRED_MANIFEST_COLUMNS = {
     "execution_order",
     "run_id",
@@ -105,14 +104,19 @@ def _safe_run_dir(run_id: str) -> str:
     return re.sub(r"[^A-Za-z0-9_.-]+", "__", run_id)
 
 
-def _build_command(row: Mapping[str, object], system: Mapping[str, object], model: Mapping[str, object]) -> str:
+def _build_command(
+    row: Mapping[str, object],
+    system: Mapping[str, object],
+    model: Mapping[str, object],
+) -> str:
     adapter = system.get("adapter") or {}
     if not isinstance(adapter, dict):
         raise ValueError(f"adapter config missing for {row['system_id']}")
     kind = str(adapter.get("kind") or "")
     task_id = str(row["task_id"])
     run_id = str(row["run_id"])
-    model_name = str(model.get("litellm_model_name") or f"{model.get('provider')}/{model.get('model_id')}")
+    default_model_name = f"{model.get('provider')}/{model.get('model_id')}"
+    model_name = str(model.get("litellm_model_name") or default_model_name)
     reasoning = str(model.get("reasoning_effort") or "medium")
 
     q_task = shlex.quote(f"^{re.escape(task_id)}$")
@@ -183,7 +187,9 @@ def build_pilot_command_plan(
         system_id = str(record["system_id"])
         system = systems[system_id]
         adapter = system.get("adapter") or {}
-        required_secrets = adapter.get("required_secrets") or [] if isinstance(adapter, dict) else []
+        required_secrets = (
+            adapter.get("required_secrets") or [] if isinstance(adapter, dict) else []
+        )
         checkout_dir = checkout_root / system_id
         rows.append(
             {
@@ -208,7 +214,9 @@ def verify_pinned_checkouts(
         checkout = checkout_root / system_id
         expected_commit = str(system.get("commit") or "")
         adapter = system.get("adapter") or {}
-        required_paths = adapter.get("required_paths") or [] if isinstance(adapter, dict) else []
+        required_paths = (
+            adapter.get("required_paths") or [] if isinstance(adapter, dict) else []
+        )
         observed_commit = None
         errors: list[str] = []
         if not checkout.exists():
