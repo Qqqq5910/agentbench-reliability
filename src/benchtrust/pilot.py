@@ -1,9 +1,13 @@
 from __future__ import annotations
 
+import json
+import os
 import re
 import shlex
 import subprocess
+import time
 from collections.abc import Mapping
+from datetime import UTC, datetime
 from pathlib import Path
 
 import pandas as pd
@@ -159,7 +163,7 @@ def _build_command(
     if kind == "moatless":
         return " ".join(
             [
-                "python ../../scripts/adapters/run_moatless_single.py",
+                'python "$BENCHTRUST_REPO_ROOT/scripts/adapters/run_moatless_single.py"',
                 "--repo-dir .",
                 f"--instance-id {shlex.quote(task_id)}",
                 f"--model {q_model}",
@@ -248,3 +252,217 @@ def verify_pinned_checkouts(
             }
         )
     return pd.DataFrame(rows)
+
+
+EXECUTION_PLAN_COLUMNS = {
+    "execution_order",
+    "run_id",
+    "system_id",
+    "task_id",
+    "replicate_index",
+    "checkout_dir",
+    "required_secrets",
+    "result_dir",
+    "command",
+}
+
+
+def select_execution_rows(
+    plan: pd.DataFrame,
+    *,
+    system_id: str | None = None,
+    start_order: int = 1,
+    limit: int | None = None,
+) -> pd.DataFrame:
+    """Select a deterministic contiguous pilot execution slice."""
+
+    missing = EXECUTION_PLAN_COLUMNS - set(plan.columns)
+    if missing:
+        raise ValueError(f"pilot command plan missing columns: {sorted(missing)}")
+    if start_order <= 0:
+        raise ValueError("start_order must be positive")
+    if limit is not None and limit <= 0:
+        raise ValueError("limit must be positive when provided")
+
+    selected = plan.loc[plan["execution_order"].astype(int) >= start_order].copy()
+    if system_id is not None:
+        selected = selected.loc[selected["system_id"].astype(str) == system_id].copy()
+    selected = selected.sort_values("execution_order")
+    if limit is not None:
+        selected = selected.head(limit)
+    if selected.empty:
+        raise ValueError("pilot execution selection is empty")
+    return selected.reset_index(drop=True)
+
+
+def _required_secrets(value: object) -> list[str]:
+    if value is None or pd.isna(value):
+        return []
+    return [item.strip() for item in str(value).split(",") if item.strip()]
+
+
+def _classify_failure(stderr: str) -> str:
+    normalized = stderr.lower()
+    provider_markers = (
+        "authentication",
+        "api key",
+        "rate limit",
+        "ratelimit",
+        "litellm",
+        "openai",
+        "provider",
+    )
+    infra_markers = (
+        "docker daemon",
+        "cannot connect to the docker",
+        "no space left on device",
+        "container runtime",
+        "image pull",
+    )
+    if any(marker in normalized for marker in provider_markers):
+        return "provider_error"
+    if any(marker in normalized for marker in infra_markers):
+        return "infra_error"
+    return "harness_error"
+
+
+def execute_pilot_plan(
+    plan: pd.DataFrame,
+    *,
+    repo_root: Path = Path("."),
+    status_output: Path = Path("artifacts/stage2_pilot/execution_status.csv"),
+    system_id: str | None = None,
+    start_order: int = 1,
+    limit: int | None = None,
+    execute: bool = False,
+    redo: bool = False,
+    timeout_seconds: int = 1800,
+) -> pd.DataFrame:
+    """Dry-run or execute a frozen pilot plan without inspecting solve performance."""
+
+    if timeout_seconds <= 0:
+        raise ValueError("timeout_seconds must be positive")
+
+    selected = select_execution_rows(
+        plan,
+        system_id=system_id,
+        start_order=start_order,
+        limit=limit,
+    )
+    root = repo_root.resolve()
+
+    missing_secrets: dict[str, set[str]] = {}
+    if execute:
+        for row in selected.to_dict("records"):
+            absent = {
+                secret
+                for secret in _required_secrets(row["required_secrets"])
+                if not os.environ.get(secret)
+            }
+            if absent:
+                missing_secrets.setdefault(str(row["system_id"]), set()).update(absent)
+        if missing_secrets:
+            details = "; ".join(
+                f"{system}: {','.join(sorted(values))}"
+                for system, values in sorted(missing_secrets.items())
+            )
+            raise ValueError(f"required pilot secrets are missing: {details}")
+
+    status_rows: list[dict[str, object]] = []
+    status_path = root / status_output
+    status_path.parent.mkdir(parents=True, exist_ok=True)
+
+    for row in selected.to_dict("records"):
+        checkout = root / str(row["checkout_dir"])
+        result_dir = root / str(row["result_dir"])
+        metadata_path = result_dir / "metadata.json"
+
+        base_status = {
+            "execution_order": int(row["execution_order"]),
+            "run_id": str(row["run_id"]),
+            "system_id": str(row["system_id"]),
+            "task_id": str(row["task_id"]),
+            "replicate_index": int(row["replicate_index"]),
+            "command": str(row["command"]),
+            "result_dir": str(row["result_dir"]),
+        }
+
+        if not execute:
+            status_rows.append(
+                {
+                    **base_status,
+                    "status": "dry_run",
+                    "returncode": None,
+                    "duration_seconds": 0.0,
+                }
+            )
+            continue
+
+        if not checkout.exists():
+            raise ValueError(f"pilot checkout does not exist: {checkout}")
+
+        if metadata_path.exists() and not redo:
+            existing = json.loads(metadata_path.read_text(encoding="utf-8"))
+            if existing.get("status") == "completed":
+                status_rows.append(
+                    {
+                        **base_status,
+                        "status": "skipped_completed",
+                        "returncode": existing.get("returncode"),
+                        "duration_seconds": existing.get("duration_seconds"),
+                    }
+                )
+                continue
+
+        result_dir.mkdir(parents=True, exist_ok=True)
+        env = os.environ.copy()
+        env["BENCHTRUST_REPO_ROOT"] = str(root)
+        env["BENCHTRUST_RUN_DIR"] = str(result_dir)
+
+        started_at = datetime.now(UTC)
+        started = time.monotonic()
+        returncode: int | None = None
+        stdout = ""
+        stderr = ""
+        try:
+            completed = subprocess.run(
+                str(row["command"]),
+                cwd=checkout,
+                env=env,
+                shell=True,
+                executable="/bin/bash",
+                capture_output=True,
+                text=True,
+                timeout=timeout_seconds,
+                check=False,
+            )
+            returncode = completed.returncode
+            stdout = completed.stdout
+            stderr = completed.stderr
+            status = "completed" if returncode == 0 else _classify_failure(stderr)
+        except subprocess.TimeoutExpired as exc:
+            stdout = exc.stdout or ""
+            stderr = exc.stderr or ""
+            status = "timeout"
+
+        duration = time.monotonic() - started
+        finished_at = datetime.now(UTC)
+        (result_dir / "stdout.log").write_text(str(stdout), encoding="utf-8")
+        (result_dir / "stderr.log").write_text(str(stderr), encoding="utf-8")
+
+        metadata = {
+            **base_status,
+            "status": status,
+            "returncode": returncode,
+            "duration_seconds": duration,
+            "started_at": started_at.isoformat(),
+            "finished_at": finished_at.isoformat(),
+            "timeout_seconds": timeout_seconds,
+        }
+        metadata_path.write_text(json.dumps(metadata, indent=2), encoding="utf-8")
+        status_rows.append(metadata)
+        pd.DataFrame(status_rows).to_csv(status_path, index=False)
+
+    result = pd.DataFrame(status_rows)
+    result.to_csv(status_path, index=False)
+    return result

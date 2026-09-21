@@ -4,6 +4,8 @@ import pandas as pd
 
 from benchtrust.pilot import (
     build_pilot_command_plan,
+    execute_pilot_plan,
+    select_execution_rows,
     validate_pilot_manifest,
 )
 
@@ -103,3 +105,59 @@ def test_manifest_rejects_wrong_model() -> None:
         assert "model_id" in str(exc)
     else:
         raise AssertionError("expected model mismatch to fail")
+
+
+def _command_plan(tmp_path: Path) -> pd.DataFrame:
+    manifest = _manifest()
+    plan = build_pilot_command_plan(manifest, _config(), checkout_root=Path("external"))
+    plan["result_dir"] = [
+        str(Path("results") / f"run-{index}") for index in range(len(plan))
+    ]
+    return plan
+
+
+def test_executor_dry_run_never_runs_commands(tmp_path: Path) -> None:
+    plan = _command_plan(tmp_path)
+    plan["command"] = "exit 99"
+    result = execute_pilot_plan(
+        plan,
+        repo_root=tmp_path,
+        status_output=Path("status.csv"),
+        limit=3,
+        execute=False,
+    )
+    assert len(result) == 3
+    assert result["status"].eq("dry_run").all()
+    assert (tmp_path / "status.csv").exists()
+
+
+def test_executor_requires_secrets_before_execution(
+    tmp_path: Path, monkeypatch
+) -> None:
+    plan = _command_plan(tmp_path)
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    try:
+        execute_pilot_plan(
+            plan,
+            repo_root=tmp_path,
+            status_output=Path("status.csv"),
+            limit=1,
+            execute=True,
+        )
+    except ValueError as exc:
+        assert "OPENAI_API_KEY" in str(exc)
+    else:
+        raise AssertionError("expected missing secret validation to fail")
+
+
+def test_select_execution_rows_respects_order_system_and_limit() -> None:
+    plan = _command_plan(Path("."))
+    selected = select_execution_rows(
+        plan,
+        system_id="mini",
+        start_order=4,
+        limit=2,
+    )
+    assert len(selected) == 2
+    assert selected["system_id"].eq("mini").all()
+    assert selected["execution_order"].min() >= 4

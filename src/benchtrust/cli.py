@@ -20,7 +20,12 @@ from .ingestion.swebench import (
     load_submission_outcomes,
     reproduce_submission_scores,
 )
-from .pilot import build_pilot_command_plan, validate_pilot_manifest, verify_pinned_checkouts
+from .pilot import (
+    build_pilot_command_plan,
+    execute_pilot_plan,
+    validate_pilot_manifest,
+    verify_pinned_checkouts,
+)
 from .power import paired_power_curve
 from .provenance import build_manifest, write_manifest
 from .stage2 import (
@@ -417,6 +422,43 @@ def stage2_pilot_plan(
     )
     snapshot_path.write_text("\n".join(lines), encoding="utf-8")
     typer.echo(f"Wrote {output_path} and {snapshot_path}")
+
+
+@app.command("stage2-pilot-run")
+def stage2_pilot_run(
+    plan_path: Path = Path("data/stage2/pilot_command_plan.csv"),
+    status_output: Path = Path("artifacts/stage2_pilot/execution_status.csv"),
+    system_id: str | None = None,
+    start_order: int = 1,
+    limit: int | None = None,
+    execute: bool = False,
+    accept_api_costs: bool = False,
+    redo: bool = False,
+    timeout_seconds: int = 1800,
+) -> None:
+    """Dry-run by default; execute paid pilot cells only with two explicit gates."""
+
+    if execute and not accept_api_costs:
+        raise typer.BadParameter(
+            "--execute requires --accept-api-costs; no model calls were started"
+        )
+
+    plan = _read_table(plan_path)
+    result = execute_pilot_plan(
+        plan,
+        status_output=status_output,
+        system_id=system_id,
+        start_order=start_order,
+        limit=limit,
+        execute=execute,
+        redo=redo,
+        timeout_seconds=timeout_seconds,
+    )
+    counts = result["status"].value_counts().to_dict()
+    mode = "EXECUTE" if execute else "DRY-RUN"
+    typer.echo(
+        f"{mode}: selected={len(result)}, statuses={counts}, output={status_output}"
+    )
 
 
 @app.command("fetch-swebench-verified")
