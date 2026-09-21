@@ -58,6 +58,9 @@ jobs:
       - name: Generate and verify pilot command plan
         run: benchtrust stage2-pilot-plan --verify-checkouts
 
+      - name: Dry-run full frozen pilot executor
+        run: benchtrust stage2-pilot-run
+
       - name: Upload no-call preflight bundle
         uses: actions/upload-artifact@v4
         with:
@@ -65,6 +68,7 @@ jobs:
           path: |
             data/stage2/pilot_command_plan.csv
             artifacts/stage2_pilot/PREFLIGHT.md
+            artifacts/stage2_pilot/execution_status.csv
           if-no-files-found: error
 
       - name: Commit deterministic preflight plan
@@ -74,7 +78,8 @@ jobs:
           git add \
             data/stage2/pilot_run_manifest.csv \
             data/stage2/pilot_command_plan.csv \
-            artifacts/stage2_pilot/PREFLIGHT.md
+            artifacts/stage2_pilot/PREFLIGHT.md \
+            artifacts/stage2_pilot/execution_status.csv
           if git diff --cached --quiet; then
             echo "No preflight plan changes to commit."
             exit 0
