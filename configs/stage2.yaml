@@ -1,0 +1,36 @@
+stage: 2
+status: design
+seed: 20260921
+
+task_selection:
+  total_tasks: 120
+  representative_tasks: 80
+  enriched_tasks: 40
+  disagreement_threshold: 0.90
+  stratify_by: repository
+
+replicate_design:
+  candidates: [3, 5, 7, 10]
+  n_sim: 5000
+  primary_scenario: moderate
+  target_rate_a: 0.75
+  target_rate_b: 0.72
+  scenarios:
+    low:
+      temperature: 0.65
+    moderate:
+      temperature: 1.00
+    high:
+      temperature: 1.50
+  thresholds:
+    score_abs_error_p95: 0.03
+    run_sd_median_relative_error: 0.30
+    paired_diff_ci_median_halfwidth: 0.04
+    unstable_detection_mean: 0.80
+    rank_reversal_median_abs_error: 0.15
+
+notes:
+  - Stage 1 cross-system solve rates are used only as a synthetic task-difficulty shape.
+  - They are not interpreted as estimates of within-system rerun probabilities.
+  - The moderate scenario is confirmatory for choosing replicate count.
+  - Low and high stochasticity scenarios are sensitivity analyses.
