@@ -23,6 +23,7 @@ from .ingestion.swebench import (
 from .power import paired_power_curve
 from .provenance import build_manifest, write_manifest
 from .stage2 import (
+    build_execution_manifest,
     recommend_replicates,
     select_pilot_tasks,
     select_stage2_tasks,
@@ -173,13 +174,18 @@ def power(
 def stage2_design(
     task_summary_path: Path = Path("artifacts/stage1/task_summary.csv"),
     config_path: Path = Path("configs/stage2.yaml"),
+    systems_config_path: Path = Path("configs/stage2_systems.yaml"),
     task_output: Path = Path("data/stage2/task_subset.csv"),
     pilot_output: Path = Path("data/stage2/pilot_task_subset.csv"),
+    pilot_manifest_output: Path = Path("data/stage2/pilot_run_manifest.csv"),
     artifact_dir: Path = Path("artifacts/stage2_design"),
 ) -> None:
     """Freeze the Stage 2 task subset and simulate the required replicate count."""
 
     config = yaml.safe_load(config_path.read_text(encoding="utf-8")) or {}
+    systems_config = yaml.safe_load(
+        systems_config_path.read_text(encoding="utf-8")
+    ) or {}
     task_config = config.get("task_selection") or {}
     replicate_config = config.get("replicate_design") or {}
     pilot_config = config.get("pilot_selection") or {}
@@ -201,6 +207,16 @@ def stage2_design(
         selected,
         n_tasks=int(pilot_config.get("n_tasks", 12)),
         seed=pilot_seed,
+    )
+
+    execution_seed = int(pilot_config.get("execution_order_seed", pilot_seed + 1))
+    pilot_manifest = build_execution_manifest(
+        pilot,
+        systems_config.get("systems") or [],
+        replicates=int(pilot_config.get("replicates", 2)),
+        seed=execution_seed,
+        phase="pilot",
+        common_model=systems_config.get("common_model") or {},
     )
 
     scenario_config = replicate_config.get("scenarios") or {}
@@ -230,9 +246,11 @@ def stage2_design(
 
     task_output.parent.mkdir(parents=True, exist_ok=True)
     pilot_output.parent.mkdir(parents=True, exist_ok=True)
+    pilot_manifest_output.parent.mkdir(parents=True, exist_ok=True)
     artifact_dir.mkdir(parents=True, exist_ok=True)
     selected.to_csv(task_output, index=False)
     pilot.to_csv(pilot_output, index=False)
+    pilot_manifest.to_csv(pilot_manifest_output, index=False)
     simulation.to_csv(artifact_dir / "replicate_design.csv", index=False)
 
     component_counts = selected["selection_component"].value_counts()
@@ -265,6 +283,8 @@ def stage2_design(
         f"- Selection seed: **{seed}**.",
         f"- Pilot tasks excluded from confirmatory analysis: **{len(pilot)}**.",
         f"- Pilot selection seed: **{pilot_seed}**.",
+        f"- Pilot planned executions: **{len(pilot_manifest)}**.",
+        f"- Pilot execution-order seed: **{execution_seed}**.",
         f"- Primary replicate-design scenario: **{primary_scenario}**.",
         f"- Recommended replicate count: **{recommendation_text}**.",
         "",
@@ -300,8 +320,8 @@ def stage2_design(
         encoding="utf-8",
     )
     typer.echo(
-        f"Wrote {task_output}, {pilot_output}, and replicate design artifacts to "
-        f"{artifact_dir}; recommended_replicates={recommendation_text}"
+        f"Wrote {task_output}, {pilot_output}, {pilot_manifest_output}, and design "
+        f"artifacts to {artifact_dir}; recommended_replicates={recommendation_text}"
     )
 
 

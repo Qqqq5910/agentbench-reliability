@@ -175,6 +175,72 @@ def select_pilot_tasks(
         raise RuntimeError("pilot tasks overlap the formal Stage 2 task subset")
     return pilot
 
+def build_execution_manifest(
+    tasks: pd.DataFrame,
+    systems: Sequence[Mapping[str, object]],
+    *,
+    replicates: int,
+    seed: int,
+    phase: str,
+    common_model: Mapping[str, object] | None = None,
+) -> pd.DataFrame:
+    """Build a deterministic randomized execution manifest for a frozen task list."""
+
+    if "task_id" not in tasks.columns:
+        raise ValueError("tasks must contain a task_id column")
+    if replicates <= 0:
+        raise ValueError("replicates must be positive")
+    if not phase.strip():
+        raise ValueError("phase must not be empty")
+    if tasks["task_id"].duplicated().any():
+        raise ValueError("tasks contain duplicate task IDs")
+    if not systems:
+        raise ValueError("at least one system is required")
+
+    model = dict(common_model or {})
+    rows: list[dict[str, object]] = []
+    seen_systems: set[str] = set()
+    task_ids = sorted(tasks["task_id"].dropna().astype(str).tolist())
+
+    for system in systems:
+        system_id = str(system.get("system_id") or "").strip()
+        if not system_id:
+            raise ValueError("every system requires a non-empty system_id")
+        if system_id in seen_systems:
+            raise ValueError(f"duplicate system_id: {system_id}")
+        seen_systems.add(system_id)
+
+        for task_id in task_ids:
+            for replicate_index in range(1, replicates + 1):
+                rows.append(
+                    {
+                        "run_id": (
+                            f"{phase}:{system_id}:{task_id}:r{replicate_index:02d}"
+                        ),
+                        "phase": phase,
+                        "system_id": system_id,
+                        "scaffold": system.get("scaffold"),
+                        "scaffold_repository": system.get("repository"),
+                        "scaffold_commit": system.get("commit"),
+                        "model_provider": model.get("provider"),
+                        "model_id": model.get("model_id"),
+                        "reasoning_effort": model.get("reasoning_effort"),
+                        "api_surface": model.get("api_surface"),
+                        "task_id": task_id,
+                        "replicate_index": replicate_index,
+                    }
+                )
+
+    manifest = pd.DataFrame(rows)
+    rng = np.random.default_rng(seed)
+    manifest = manifest.iloc[rng.permutation(len(manifest))].reset_index(drop=True)
+    manifest.insert(0, "execution_order", np.arange(1, len(manifest) + 1))
+    manifest["execution_seed"] = seed
+
+    if manifest["run_id"].duplicated().any():
+        raise RuntimeError("execution manifest contains duplicate run IDs")
+    return manifest
+
 def _calibrated_probabilities(
     difficulty: np.ndarray,
     *,

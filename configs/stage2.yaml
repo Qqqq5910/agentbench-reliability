@@ -33,6 +33,7 @@ replicate_design:
 pilot_selection:
   n_tasks: 12
   seed: 20260922
+  execution_order_seed: 20260923
   replicates: 2
   excluded_from_confirmatory_analysis: true
   allowed_selection_criteria:

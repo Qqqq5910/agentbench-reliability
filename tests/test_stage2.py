@@ -1,6 +1,7 @@
 import pandas as pd
 
 from benchtrust.stage2 import (
+    build_execution_manifest,
     recommend_replicates,
     select_pilot_tasks,
     select_stage2_tasks,
@@ -117,3 +118,25 @@ def test_pilot_tasks_are_reproducible_and_disjoint() -> None:
     assert first["task_id"].nunique() == 10
     assert not set(first["task_id"]) & set(formal["task_id"])
     assert first["selection_component"].eq("pilot_excluded_from_confirmatory").all()
+
+
+def test_execution_manifest_is_complete_unique_and_reproducible() -> None:
+    tasks = _task_summary(4)
+    systems = [
+        {"system_id": "A", "scaffold": "one", "repository": "org/one", "commit": "abc"},
+        {"system_id": "B", "scaffold": "two", "repository": "org/two", "commit": "def"},
+    ]
+    model = {"provider": "test", "model_id": "model", "reasoning_effort": "medium"}
+    first = build_execution_manifest(
+        tasks, systems, replicates=2, seed=31, phase="pilot", common_model=model
+    )
+    second = build_execution_manifest(
+        tasks, systems, replicates=2, seed=31, phase="pilot", common_model=model
+    )
+
+    pd.testing.assert_frame_equal(first, second)
+    assert len(first) == 16
+    assert first["run_id"].nunique() == 16
+    assert first["execution_order"].tolist() == list(range(1, 17))
+    assert set(first["system_id"]) == {"A", "B"}
+    assert set(first["replicate_index"]) == {1, 2}
