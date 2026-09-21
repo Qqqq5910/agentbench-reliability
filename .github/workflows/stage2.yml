@@ -8,8 +8,11 @@ on:
       - ".github/workflows/stage2.yml"
       - "configs/stage2.yaml"
       - "src/benchtrust/stage2.py"
+      - "src/benchtrust/pilot.py"
       - "src/benchtrust/cli.py"
       - "tests/test_stage2.py"
+      - "tests/test_pilot.py"
+      - "configs/stage2_systems.yaml"
       - "artifacts/stage1/**"
       - "pyproject.toml"
 
