@@ -6,6 +6,10 @@ on:
     branches: [main]
     paths:
       - ".github/workflows/stage1.yml"
+      - "src/benchtrust/**"
+      - "tests/**"
+      - "configs/**"
+      - "pyproject.toml"
 
 permissions:
   contents: write
