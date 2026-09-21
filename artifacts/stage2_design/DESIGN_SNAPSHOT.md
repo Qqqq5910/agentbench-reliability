@@ -7,6 +7,8 @@
 - Selection seed: **20260921**.
 - Pilot tasks excluded from confirmatory analysis: **12**.
 - Pilot selection seed: **20260922**.
+- Pilot planned executions: **72**.
+- Pilot execution-order seed: **20260923**.
 - Primary replicate-design scenario: **moderate**.
 - Recommended replicate count: **10**.
 
