@@ -4,7 +4,9 @@ import pandas as pd
 
 from benchtrust.pilot import (
     build_pilot_command_plan,
+    build_runtime_plan,
     execute_pilot_plan,
+    setup_pilot_runtimes,
     select_execution_rows,
     validate_pilot_manifest,
 )
@@ -25,6 +27,10 @@ def _config() -> dict:
                 "repository": "org/swe",
                 "commit": "a",
                 "adapter": {"kind": "sweagent", "required_secrets": ["OPENAI_API_KEY"]},
+                "runtime": {
+                    "install_target": ".",
+                    "smoke_command": "sweagent run-batch --help",
+                },
             },
             {
                 "system_id": "mini",
@@ -32,6 +38,10 @@ def _config() -> dict:
                 "repository": "org/mini",
                 "commit": "b",
                 "adapter": {"kind": "mini_swe_agent", "required_secrets": ["OPENAI_API_KEY"]},
+                "runtime": {
+                    "install_target": ".",
+                    "smoke_command": "mini-extra swebench-single --help",
+                },
             },
             {
                 "system_id": "moat",
@@ -41,6 +51,10 @@ def _config() -> dict:
                 "adapter": {
                     "kind": "moatless",
                     "required_secrets": ["OPENAI_API_KEY", "VOYAGE_API_KEY"],
+                },
+                "runtime": {
+                    "install_target": ".",
+                    "smoke_command": "python scripts/docker_run.py --help",
                 },
             },
         ],
@@ -161,3 +175,15 @@ def test_select_execution_rows_respects_order_system_and_limit() -> None:
     assert len(selected) == 2
     assert selected["system_id"].eq("mini").all()
     assert selected["execution_order"].min() >= 4
+
+
+def test_runtime_setup_is_dry_run_by_default(tmp_path: Path) -> None:
+    plan = build_runtime_plan(
+        _config(),
+        checkout_root=Path("external"),
+        venv_root=Path("venvs"),
+    )
+    result = setup_pilot_runtimes(plan, repo_root=tmp_path, install=False)
+    assert len(result) == 3
+    assert result["status"].eq("dry_run").all()
+    assert not (tmp_path / "venvs").exists()

@@ -5,6 +5,7 @@ import os
 import re
 import shlex
 import subprocess
+import sys
 import time
 from collections.abc import Mapping
 from datetime import UTC, datetime
@@ -201,6 +202,7 @@ def build_pilot_command_plan(
                 "checkout_dir": str(checkout_dir),
                 "required_secrets": ",".join(str(value) for value in required_secrets),
                 "result_dir": f"artifacts/stage2_pilot/runs/{_safe_run_dir(str(record['run_id']))}",
+                "runtime_venv": f".benchtrust/stage2/venvs/{system_id}",
                 "command": _build_command(record, system, model),
             }
         )
@@ -263,6 +265,7 @@ EXECUTION_PLAN_COLUMNS = {
     "checkout_dir",
     "required_secrets",
     "result_dir",
+    "runtime_venv",
     "command",
 }
 
@@ -374,6 +377,7 @@ def execute_pilot_plan(
 
     for row in selected.to_dict("records"):
         checkout = root / str(row["checkout_dir"])
+        runtime_venv = root / str(row["runtime_venv"])
         result_dir = root / str(row["result_dir"])
         metadata_path = result_dir / "metadata.json"
 
@@ -400,6 +404,11 @@ def execute_pilot_plan(
 
         if not checkout.exists():
             raise ValueError(f"pilot checkout does not exist: {checkout}")
+        if not runtime_venv.exists():
+            raise ValueError(
+                f"pilot runtime is not prepared: {runtime_venv}; "
+                "run stage2-pilot-setup --install first"
+            )
 
         if metadata_path.exists() and not redo:
             existing = json.loads(metadata_path.read_text(encoding="utf-8"))
@@ -418,6 +427,7 @@ def execute_pilot_plan(
         env = os.environ.copy()
         env["BENCHTRUST_REPO_ROOT"] = str(root)
         env["BENCHTRUST_RUN_DIR"] = str(result_dir)
+        env["PATH"] = f"{runtime_venv / 'bin'}{os.pathsep}{env.get('PATH', '')}"
 
         started_at = datetime.now(UTC)
         started = time.monotonic()
@@ -466,3 +476,130 @@ def execute_pilot_plan(
     result = pd.DataFrame(status_rows)
     result.to_csv(status_path, index=False)
     return result
+
+
+def build_runtime_plan(
+    systems_config: Mapping[str, object],
+    *,
+    checkout_root: Path = Path("external/stage2"),
+    venv_root: Path = Path(".benchtrust/stage2/venvs"),
+) -> pd.DataFrame:
+    """Build isolated runtime setup instructions for every candidate system."""
+
+    systems = _systems_by_id(systems_config)
+    rows: list[dict[str, object]] = []
+    for system_id, system in systems.items():
+        runtime = system.get("runtime") or {}
+        if not isinstance(runtime, dict):
+            raise ValueError(f"runtime config missing for {system_id}")
+        install_target = str(runtime.get("install_target") or ".")
+        smoke_command = str(runtime.get("smoke_command") or "").strip()
+        if not smoke_command:
+            raise ValueError(f"runtime smoke_command missing for {system_id}")
+        rows.append(
+            {
+                "system_id": system_id,
+                "repository": system.get("repository"),
+                "commit": system.get("commit"),
+                "checkout_dir": str(checkout_root / system_id),
+                "venv_dir": str(venv_root / system_id),
+                "install_target": install_target,
+                "smoke_command": smoke_command,
+            }
+        )
+    return pd.DataFrame(rows)
+
+
+def setup_pilot_runtimes(
+    runtime_plan: pd.DataFrame,
+    *,
+    repo_root: Path = Path("."),
+    install: bool = False,
+) -> pd.DataFrame:
+    """Dry-run or create isolated candidate virtual environments without model calls."""
+
+    required = {
+        "system_id",
+        "repository",
+        "commit",
+        "checkout_dir",
+        "venv_dir",
+        "install_target",
+        "smoke_command",
+    }
+    missing = required - set(runtime_plan.columns)
+    if missing:
+        raise ValueError(f"runtime plan missing columns: {sorted(missing)}")
+
+    root = repo_root.resolve()
+    rows: list[dict[str, object]] = []
+    for record in runtime_plan.to_dict("records"):
+        system_id = str(record["system_id"])
+        checkout = root / str(record["checkout_dir"])
+        venv_dir = root / str(record["venv_dir"])
+        base = {
+            "system_id": system_id,
+            "checkout_dir": str(record["checkout_dir"]),
+            "venv_dir": str(record["venv_dir"]),
+            "smoke_command": str(record["smoke_command"]),
+        }
+        if not install:
+            rows.append({**base, "status": "dry_run", "returncode": None})
+            continue
+
+        if not checkout.exists():
+            raise ValueError(f"candidate checkout does not exist: {checkout}")
+
+        observed = subprocess.run(
+            ["git", "-C", str(checkout), "rev-parse", "HEAD"],
+            check=True,
+            capture_output=True,
+            text=True,
+        ).stdout.strip()
+        if observed != str(record["commit"]):
+            raise ValueError(
+                f"candidate checkout revision mismatch for {system_id}: "
+                f"expected {record['commit']}, observed {observed}"
+            )
+
+        if not venv_dir.exists():
+            subprocess.run(
+                [sys.executable, "-m", "venv", str(venv_dir)],
+                check=True,
+            )
+
+        python_path = venv_dir / "bin" / "python"
+        subprocess.run(
+            [str(python_path), "-m", "pip", "install", "--upgrade", "pip"],
+            check=True,
+            cwd=checkout,
+        )
+        install_target = str(record["install_target"])
+        subprocess.run(
+            [str(python_path), "-m", "pip", "install", "-e", install_target],
+            check=True,
+            cwd=checkout,
+        )
+
+        env = os.environ.copy()
+        env["PATH"] = f"{venv_dir / 'bin'}{os.pathsep}{env.get('PATH', '')}"
+        smoke = subprocess.run(
+            str(record["smoke_command"]),
+            shell=True,
+            executable="/bin/bash",
+            cwd=checkout,
+            env=env,
+            capture_output=True,
+            text=True,
+            check=False,
+            timeout=120,
+        )
+        rows.append(
+            {
+                **base,
+                "status": "ready" if smoke.returncode == 0 else "smoke_failed",
+                "returncode": smoke.returncode,
+            }
+        )
+
+    return pd.DataFrame(rows)

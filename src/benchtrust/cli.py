@@ -22,7 +22,9 @@ from .ingestion.swebench import (
 )
 from .pilot import (
     build_pilot_command_plan,
+    build_runtime_plan,
     execute_pilot_plan,
+    setup_pilot_runtimes,
     validate_pilot_manifest,
     verify_pinned_checkouts,
 )
@@ -422,6 +424,28 @@ def stage2_pilot_plan(
     )
     snapshot_path.write_text("\n".join(lines), encoding="utf-8")
     typer.echo(f"Wrote {output_path} and {snapshot_path}")
+
+
+@app.command("stage2-pilot-setup")
+def stage2_pilot_setup(
+    systems_config_path: Path = Path("configs/stage2_systems.yaml"),
+    output_path: Path = Path("artifacts/stage2_pilot/runtime_preflight.csv"),
+    install: bool = False,
+) -> None:
+    """Plan isolated runtimes by default; install only with --install."""
+
+    systems_config = yaml.safe_load(
+        systems_config_path.read_text(encoding="utf-8")
+    ) or {}
+    plan = build_runtime_plan(systems_config)
+    result = setup_pilot_runtimes(plan, install=install)
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    result.to_csv(output_path, index=False)
+    mode = "INSTALL" if install else "DRY-RUN"
+    typer.echo(
+        f"{mode}: systems={len(result)}, statuses="
+        f"{result['status'].value_counts().to_dict()}, output={output_path}"
+    )
 
 
 @app.command("stage2-pilot-run")

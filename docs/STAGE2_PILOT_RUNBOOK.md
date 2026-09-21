@@ -54,3 +54,27 @@ SWE-agent and mini-swe-agent require `OPENAI_API_KEY`. Moatless currently declar
 entire selected slice before the first command is launched.
 
 No credential values are written to artifacts.
+
+
+## Isolated runtimes
+
+Each candidate scaffold uses its own virtual environment under
+`.benchtrust/stage2/venvs/<system_id>`. This prevents dependency versions from one
+agent from changing another agent's runtime.
+
+Preview the setup with no installation:
+
+```bash
+benchtrust stage2-pilot-setup
+```
+
+Create the isolated environments only when you want to prepare the machine:
+
+```bash
+benchtrust stage2-pilot-setup --install
+```
+
+The setup command does not invoke a language model. It verifies each pinned checkout,
+installs that scaffold into its own venv, and runs only the scaffold's `--help` smoke
+command. Real pilot execution refuses to start when the matching isolated runtime has
+not been prepared.

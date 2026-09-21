@@ -26,6 +26,9 @@ systems:
         - config/default.yaml
       required_secrets:
         - OPENAI_API_KEY
+    runtime:
+      install_target: "."
+      smoke_command: "sweagent run-batch --help"
     prompt_hash: pending
     tool_config_hash: pending
     container_digest: pending
@@ -42,6 +45,9 @@ systems:
         - src/minisweagent/config/benchmarks/swebench.yaml
       required_secrets:
         - OPENAI_API_KEY
+    runtime:
+      install_target: "."
+      smoke_command: "mini-extra swebench-single --help"
     prompt_hash: pending
     tool_config_hash: pending
     container_digest: pending
@@ -59,6 +65,9 @@ systems:
       required_secrets:
         - OPENAI_API_KEY
         - VOYAGE_API_KEY
+    runtime:
+      install_target: "."
+      smoke_command: "python scripts/docker_run.py --help"
     prompt_hash: pending
     tool_config_hash: pending
     container_digest: pending
