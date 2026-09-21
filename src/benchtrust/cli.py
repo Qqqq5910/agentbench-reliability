@@ -329,18 +329,41 @@ def stage2_design(
 @app.command("stage2-pilot-plan")
 def stage2_pilot_plan(
     manifest_path: Path = Path("data/stage2/pilot_run_manifest.csv"),
+    pilot_tasks_path: Path = Path("data/stage2/pilot_task_subset.csv"),
+    stage2_config_path: Path = Path("configs/stage2.yaml"),
     systems_config_path: Path = Path("configs/stage2_systems.yaml"),
     output_path: Path = Path("data/stage2/pilot_command_plan.csv"),
     snapshot_path: Path = Path("artifacts/stage2_pilot/PREFLIGHT.md"),
     checkout_root: Path = Path("external/stage2"),
     verify_checkouts: bool = False,
+    refresh_manifest: bool = True,
 ) -> None:
     """Validate the frozen pilot matrix and generate auditable scaffold commands."""
 
-    manifest = _read_table(manifest_path)
     systems_config = yaml.safe_load(
         systems_config_path.read_text(encoding="utf-8")
     ) or {}
+    stage2_config = yaml.safe_load(
+        stage2_config_path.read_text(encoding="utf-8")
+    ) or {}
+
+    if refresh_manifest:
+        pilot_tasks = _read_table(pilot_tasks_path)
+        pilot_config = stage2_config.get("pilot_selection") or {}
+        pilot_seed = int(pilot_config.get("execution_order_seed", 20260923))
+        manifest = build_execution_manifest(
+            pilot_tasks,
+            systems_config.get("systems") or [],
+            replicates=int(pilot_config.get("replicates", 2)),
+            seed=pilot_seed,
+            phase="pilot",
+            common_model=systems_config.get("common_model") or {},
+        )
+        manifest_path.parent.mkdir(parents=True, exist_ok=True)
+        manifest.to_csv(manifest_path, index=False)
+    else:
+        manifest = _read_table(manifest_path)
+
     summary = validate_pilot_manifest(manifest, systems_config)
     plan = build_pilot_command_plan(
         manifest, systems_config, checkout_root=checkout_root

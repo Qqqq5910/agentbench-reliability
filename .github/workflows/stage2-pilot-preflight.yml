@@ -71,7 +71,10 @@ jobs:
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add data/stage2/pilot_command_plan.csv artifacts/stage2_pilot/PREFLIGHT.md
+          git add \
+            data/stage2/pilot_run_manifest.csv \
+            data/stage2/pilot_command_plan.csv \
+            artifacts/stage2_pilot/PREFLIGHT.md
           if git diff --cached --quiet; then
             echo "No preflight plan changes to commit."
             exit 0
