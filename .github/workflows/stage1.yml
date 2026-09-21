@@ -177,4 +177,6 @@ jobs:
             exit 0
           fi
           git commit -m "research: publish frozen SWE-bench Verified Stage 1 results"
+          git fetch origin main
+          git rebase origin/main
           git push origin HEAD:main
