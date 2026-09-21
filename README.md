@@ -1,80 +1,175 @@
 # AgentBench Reliability
 
-> **One Run Is Not Enough:** Measuring the statistical reliability, uncertainty, and ranking stability of AI coding-agent benchmarks.
+[![CI](https://github.com/Qqqq5910/agentbench-reliability/actions/workflows/ci.yml/badge.svg)](https://github.com/Qqqq5910/agentbench-reliability/actions/workflows/ci.yml)
+[![Stage 1](https://github.com/Qqqq5910/agentbench-reliability/actions/workflows/stage1.yml/badge.svg)](https://github.com/Qqqq5910/agentbench-reliability/actions/workflows/stage1.yml)
+[![Stage 2 design](https://github.com/Qqqq5910/agentbench-reliability/actions/workflows/stage2.yml/badge.svg)](https://github.com/Qqqq5910/agentbench-reliability/actions/workflows/stage2.yml)
+[![Pilot preflight](https://github.com/Qqqq5910/agentbench-reliability/actions/workflows/stage2-pilot-preflight.yml/badge.svg)](https://github.com/Qqqq5910/agentbench-reliability/actions/workflows/stage2-pilot-preflight.yml)
 
-AI coding-agent leaderboards report precise-looking scores and ranks. This project asks a more fundamental question: **how much of that ordering should we actually trust?**
+> **Can you trust a coding-agent leaderboard built from one run?**
+>
+> A reproducible study of task-sampling uncertainty, run-to-run stochasticity, and ranking stability in AI coding-agent benchmarks.
 
-The project separates two sources of uncertainty that are often conflated:
+AI coding-agent leaderboards report precise-looking scores and ranks. AgentBench Reliability asks a different question: **how much of that ordering is statistically stable enough to trust?**
 
-- **task-sampling uncertainty** — how leaderboard conclusions change when the evaluated task set changes;
-- **run-to-run stochasticity** — how the same frozen agent/model configuration changes when the same task is rerun independently.
+The project deliberately separates two uncertainty sources:
 
-Stage 1 studies the first problem with public coding-agent benchmark data. Stage 2 will measure the second with a controlled repeated-run experiment. Public submissions are **not** treated as repeated runs unless their metadata supports that interpretation.
+- **Stage 1 — task-sampling uncertainty:** how conclusions change when the benchmark task sample changes.
+- **Stage 2 — run-to-run stochasticity:** how a frozen agent/model configuration changes when the same task is executed repeatedly.
+
+Public leaderboard submissions are never treated as repeated runs unless their metadata actually supports that interpretation.
+
+## Frozen Stage 1 result
+
+Stage 1 is complete on a pinned SWE-bench Verified snapshot.
+
+| Quantity | Frozen result |
+|---|---:|
+| Comparable single-attempt submissions | **45** |
+| Paired benchmark tasks | **500** |
+| Highest point estimate | **79.2%** |
+| Second-highest point estimate | **79.2%** |
+| 95% task-bootstrap interval for both top point estimates | **75.6%–82.6%** |
+| Tie-splitting bootstrap ordering frequency for the top pair | **0.497** |
+| Tasks with normalized cross-system disagreement >= 0.9 | **146 / 500** |
+| Reconstructed resolved-count mismatches | **0** |
+| Reported-score mismatches where independently available | **0** |
+
+The most important Stage 1 signal is not that two systems happen to share the same point estimate. It is that, under paired task bootstrap resampling, their ordering is effectively unstable: the first point-estimate system ranks above the second with tie-splitting frequency **0.497**. This is a resampling statistic, **not** a posterior probability that either system is intrinsically superior.
+
+For the frozen top pair, the exact-McNemar benchmark-size simulation did not reach 80% detection power within the simulated task-count range. That is a concrete warning against interpreting small leaderboard gaps as automatically decisive.
+
+![Stage 1 score uncertainty](artifacts/stage1/figures/fig01_score_intervals.png)
+
+![Stage 1 rank uncertainty](artifacts/stage1/figures/fig02_rank_intervals.png)
+
+See [`artifacts/stage1/SNAPSHOT.md`](artifacts/stage1/SNAPSHOT.md) for the frozen facts and provenance boundary.
+
+## Stage 2 design is frozen
+
+Stage 2 is designed to measure **same-system rerun variability**, which Stage 1 cannot identify from public submissions.
+
+The formal confirmatory design is now frozen at:
+
+- **120 SWE-bench Verified tasks**
+  - 80 repository-stratified representative tasks;
+  - 40 additional high-disagreement tasks;
+  - 58/120 selected tasks have Stage 1 disagreement >= 0.9 after overlap from the representative component.
+- **10 valid repeated executions per system-task cell**
+- task-selection seed **20260921**
+- formal task list in [`data/stage2/task_subset.csv`](data/stage2/task_subset.csv)
+
+The replicate count was not chosen by convenience. It was selected by a pre-registered simulation gate:
+
+| Replicates | Score p95 abs. error | Run-SD median rel. error | Paired-diff CI half-width | Unstable detection | Rank-reversal abs. error | Gate |
+|---:|---:|---:|---:|---:|---:|:---:|
+| 3 | 0.036 | 0.350 | 0.095 | 0.595 | 0.232 | no |
+| 5 | 0.028 | 0.247 | 0.053 | 0.794 | 0.168 | no |
+| 7 | 0.024 | 0.201 | 0.041 | 0.887 | 0.089 | no |
+| **10** | **0.021** | **0.161** | **0.032** | **0.952** | **0.068** | **yes** |
+
+Seven repeats came close, but missed the frozen paired-difference CI half-width threshold of 0.040. The threshold was not relaxed after seeing the simulation.
+
+These values are **design-simulation outputs, not observed Stage 2 stochasticity**.
+
+## Pilot gate: zero-cost preflight completed
+
+Before any paid Stage 2 run, the repository now has a separate non-confirmatory pilot layer:
+
+- **12 pilot tasks**, guaranteed not to overlap the formal 120-task set;
+- **3 candidate scaffolds**;
+- **2 repetitions** per pilot system-task cell;
+- **72 frozen pilot execution rows**;
+- randomized execution order with seed **20260923**.
+
+Current candidate scaffolds:
+
+| Candidate | Pinned repository revision |
+|---|---|
+| SWE-agent | `SWE-agent/SWE-agent@3ea751c087f32b16e039a2233dd6eefecef325d5` |
+| mini-swe-agent | `SWE-agent/mini-swe-agent@04d809ceab9df28f9adaed044884180159172930` |
+| Moatless | `aorwall/moatless-tools@011ead57a5c81664e9c45e07e1f50b17e695cc63` |
+
+The candidate common model is `gpt-5.6-terra` with medium reasoning effort. System configurations remain **candidate-only**, not formally frozen, until the compatibility/cost pilot gate is complete.
+
+The no-call preflight verifies all three pinned checkouts and generates an auditable 72-row command plan. It executes **zero paid model calls**.
+
+See:
+
+- [`docs/STAGE2_PROTOCOL.md`](docs/STAGE2_PROTOCOL.md)
+- [`docs/STAGE2_SYSTEM_SELECTION.md`](docs/STAGE2_SYSTEM_SELECTION.md)
+- [`artifacts/stage2_pilot/PREFLIGHT.md`](artifacts/stage2_pilot/PREFLIGHT.md)
+- [`data/stage2/pilot_run_manifest.csv`](data/stage2/pilot_run_manifest.csv)
+- [`data/stage2/pilot_command_plan.csv`](data/stage2/pilot_command_plan.csv)
+
+## Cost-safe pilot executor
+
+The pilot executor is intentionally dry-run by default:
+
+```bash
+benchtrust stage2-pilot-run
+```
+
+That validates and selects the frozen execution rows without invoking a model.
+
+A real model call requires **both** explicit gates:
+
+```bash
+benchtrust stage2-pilot-run \
+  --execute \
+  --accept-api-costs \
+  --limit 1
+```
+
+The executor validates required credentials before the first call, records stdout/stderr and normalized operational statuses, supports deterministic resume by execution order, and does not use pilot solve rate or pilot ranking to select systems.
+
+See [`docs/STAGE2_PILOT_RUNBOOK.md`](docs/STAGE2_PILOT_RUNBOOK.md).
 
 ## Research questions
 
-1. **Run-to-run reliability** — How often does the same agent produce different outcomes on the same task across repeated runs?
-2. **Rank stability** — When systems differ by only a few percentage points, how stable is their ordering under task resampling?
-3. **Task instability** — Which tasks create the most disagreement between systems, and later, within the same system across repeated runs?
-4. **Benchmark sample size** — How many tasks are needed to distinguish realistic performance gaps with useful precision?
-5. **Breadth vs. repetition** — Under a fixed evaluation budget, when should benchmark designers prefer more unique tasks versus repeated runs?
+1. **Run-to-run reliability** — How often does the same frozen agent produce different outcomes on the same task?
+2. **Rank stability** — How often do near-tied systems reverse order under task sampling or reruns?
+3. **Task instability** — Which tasks generate the most cross-system and within-system variability?
+4. **Benchmark sample size** — How many tasks are required to resolve realistic performance gaps?
+5. **Single-run reliability** — How far can a one-run leaderboard score land from replicated performance?
+6. **Breadth vs. repetition** — Under a fixed evaluation budget, when is it better to evaluate more tasks versus rerun existing tasks?
 
-## Current implementation
+## Methodological guardrails
 
-`benchtrust` now provides a reproducible Stage 1 pipeline:
+- Benchmark datasets and source registries are pinned to exact revisions.
+- Downloaded source files are checksum-verified where available.
+- Official scores are independently reconstructed before inference.
+- Best-of-k submissions are not silently mixed into the single-attempt primary cohort.
+- Bootstrap resampling preserves task pairing across systems.
+- Stage 1 task-sampling uncertainty is kept separate from Stage 2 run stochasticity.
+- Pilot tasks are excluded from confirmatory Stage 2 analysis.
+- Pilot solve rate and ranking are forbidden system-selection criteria.
+- Infrastructure/provider failures remain explicit rather than silently becoming task failures.
+- Confirmatory pairwise Stage 2 comparisons use pre-specified multiplicity handling.
+- Replicate counts are not increased after inspecting significance or leaderboard ordering.
 
-- pinned retrieval of the official 500-task `SWE-bench/SWE-bench_Verified` dataset;
-- SHA-256 verification and machine-readable provenance manifests;
-- pinned ingestion of the official `SWE-bench/experiments` registry;
-- independent reconstruction of task-level aggregate scores against official metadata;
-- an explicit **single-attempt primary cohort** so best-of-k submissions are not silently mixed with single-attempt systems;
-- task-level percentile bootstrap confidence intervals;
-- paired score-difference bootstrap that preserves task alignment;
-- bootstrap leaderboard rank distributions and pairwise ordering stability;
-- task solve-rate, disagreement, and entropy summaries;
-- paired benchmark-size simulations based on the empirical joint outcome distribution and exact McNemar tests;
-- memory-bounded leaderboard bootstrap suitable for many systems;
-- validation, CLI commands, unit tests, Ruff linting, and GitHub Actions CI.
+## Reproduce Stage 1
 
-**No empirical research conclusion is claimed yet.** The frozen pipeline is ready; the next research milestone is to execute the pinned Stage 1 snapshot, publish the first uncertainty figures, and write the results section from those artifacts.
-
-## Quick start
+Create the environment:
 
 ```bash
 python -m venv .venv
-source .venv/bin/activate  # Windows: .venv\Scripts\activate
-python -m pip install -e ".[dev]"
+source .venv/bin/activate
+python -m pip install -e ".[dev,research]"
 
 ruff check .
 pytest -q
 ```
 
-Install the optional research tooling when fetching the pinned Hugging Face dataset:
+The frozen study uses:
 
-```bash
-python -m pip install -e ".[dev,research]"
-```
-
-## Frozen Stage 1 snapshot
-
-The initial empirical study is pinned in `configs/swebench_verified_stage1.yaml`.
-
-As of the frozen study definition, it uses:
-
-- `SWE-bench/SWE-bench_Verified` at revision `78f471bf655a3137b2e8a75af1501690ec009ec3`;
-- the Verified Parquet file with SHA-256 `030cfd7f2a704c4c0226e7f104c725a3b41230b1d3517f9c915ad7ea5be3fa25`;
-- `SWE-bench/experiments` at commit `40f164d5b8f1d249bf95a6df8b74b577fd8e519d`;
-- 10,000 task-bootstrap samples with seed `20260917` for the primary analysis.
-
-Fetch the task universe:
+- `SWE-bench/SWE-bench_Verified` revision `78f471bf655a3137b2e8a75af1501690ec009ec3`;
+- Verified Parquet SHA-256 `030cfd7f2a704c4c0226e7f104c725a3b41230b1d3517f9c915ad7ea5be3fa25`;
+- `SWE-bench/experiments` commit `40f164d5b8f1d249bf95a6df8b74b577fd8e519d`;
+- 10,000 paired task-bootstrap samples with seed `20260917`.
 
 ```bash
 benchtrust fetch-swebench-verified --output-dir data/raw/swebench_verified
-```
 
-Then check out the exact experiments revision and normalize the registry:
-
-```bash
 git clone https://github.com/SWE-bench/experiments external/swebench-experiments
 git -C external/swebench-experiments checkout 40f164d5b8f1d249bf95a6df8b74b577fd8e519d
 
@@ -84,15 +179,7 @@ benchtrust ingest-swebench \
   --experiments-revision 40f164d5b8f1d249bf95a6df8b74b577fd8e519d \
   --split verified \
   --output-dir data/processed
-```
 
-The ingestion step verifies the local Git revision, reproduces scores, writes provenance checksums, and emits both all ingestible submissions and the primary single-attempt cohort.
-
-See [`docs/STAGE1_RUNBOOK.md`](docs/STAGE1_RUNBOOK.md) for the complete reproduction workflow.
-
-## Analyze the primary cohort
-
-```bash
 benchtrust validate data/processed/swebench_verified_primary_outcomes.parquet
 
 benchtrust analyze \
@@ -102,102 +189,58 @@ benchtrust analyze \
   --seed 20260917
 ```
 
-The main outputs are:
+See [`docs/STAGE1_RUNBOOK.md`](docs/STAGE1_RUNBOOK.md) for the complete frozen workflow.
 
-- `leaderboard_bootstrap.csv` — point estimates, score intervals, rank intervals, and top-rank frequency;
-- `pairwise_ordering_probability.csv` — bootstrap ordering frequency for every system pair;
-- `task_summary.csv` — task difficulty and cross-system disagreement metrics.
-
-The pairwise bootstrap frequency is a resampling statistic, **not** a Bayesian posterior probability that one system is intrinsically better than another.
-
-## Benchmark-size sensitivity
-
-For a specific pair of submissions:
-
-```bash
-benchtrust power \
-  data/processed/swebench_verified_primary_outcomes.parquet \
-  SYSTEM_A SYSTEM_B \
-  --sample-sizes 25,50,100,200,500,1000,2000 \
-  --n-sim 10000 \
-  --seed 20260917
-```
-
-The simulator preserves the observed paired 2x2 outcome distribution instead of assuming independent Bernoulli outcomes. Its result is conditional on that system pair and observed task population.
-
-## Stage 1 statistical design
-
-For systems evaluated on the same tasks, analyses preserve task pairing. The baseline workflow is:
-
-1. pin benchmark and registry source revisions;
-2. reconstruct task-level outcomes and reproduce official scores;
-3. define a comparable primary cohort before inference;
-4. bootstrap tasks jointly across systems;
-5. estimate score and rank uncertainty;
-6. measure pairwise ordering stability;
-7. identify tasks with high cross-system disagreement;
-8. simulate how benchmark size changes detection power and rank reversals.
-
-Stage 1 estimates **task-sampling uncertainty**. It does not estimate true same-system rerun variance.
-
-## Stage 2 — controlled multi-run experiment
-
-After Stage 1 establishes precision requirements, the project will freeze a controlled experiment with:
-
-- the same benchmark task;
-- the same agent commit and configuration;
-- the same exact model/version;
-- a fixed evaluation environment;
-- multiple independent executions.
-
-Only those data will be used to estimate true same-system run-to-run stochasticity and to answer the breadth-vs-repetition question empirically.
-
-## Repository structure
+## Repository map
 
 ```text
 agentbench-reliability/
-├── .github/workflows/ci.yml
+├── .github/workflows/
+│   ├── ci.yml
+│   ├── stage1.yml
+│   ├── stage2.yml
+│   └── stage2-pilot-preflight.yml
+├── artifacts/
+│   ├── stage1/
+│   ├── stage2_design/
+│   └── stage2_pilot/
 ├── configs/
-│   └── swebench_verified_stage1.yaml
+│   ├── swebench_verified_stage1.yaml
+│   ├── stage2.yaml
+│   └── stage2_systems.yaml
+├── data/stage2/
+│   ├── task_subset.csv
+│   ├── pilot_task_subset.csv
+│   ├── pilot_run_manifest.csv
+│   └── pilot_command_plan.csv
 ├── docs/
-│   ├── SOURCES.md
-│   └── STAGE1_RUNBOOK.md
-├── DATA_SCHEMA.md
-├── RESEARCH_PLAN.md
-├── README.md
-├── pyproject.toml
+│   ├── STAGE1_RUNBOOK.md
+│   ├── STAGE2_PROTOCOL.md
+│   ├── STAGE2_SYSTEM_SELECTION.md
+│   └── STAGE2_PILOT_RUNBOOK.md
+├── scripts/adapters/
 ├── src/benchtrust/
 │   ├── ingestion/
 │   ├── cli.py
-│   ├── cohorts.py
+│   ├── pilot.py
+│   ├── stage2.py
 │   ├── power.py
-│   ├── provenance.py
 │   ├── statistics.py
 │   └── validation.py
 └── tests/
 ```
 
-## Reproducibility principles
+## Current research status
 
-- Raw source data are immutable once snapshotted.
-- Reportable datasets use explicit upstream revisions rather than moving `main` branches.
-- Downloaded source files are checksum-verified.
-- Every processed table is generated from code.
-- Every score used for inference must first pass reproduction checks.
-- Figures and report tables must be reproducible from scripted analysis.
-- Benchmark versions, system/model identifiers, source URLs, retrieval dates, and configuration metadata are retained.
-- Missingness and failures are preserved rather than silently dropped.
-- Exploratory analyses are separated from confirmatory Stage 2 analyses.
+- **Stage 1:** complete and frozen.
+- **Stage 2 task design:** complete and frozen.
+- **Stage 2 replicate count:** complete and frozen at 10.
+- **Pilot task set / execution order:** complete and frozen.
+- **No-call candidate preflight:** complete.
+- **Paid compatibility/cost pilot:** **not yet executed**.
+- **Formal Stage 2 repeated-run experiment:** not started.
 
-See `RESEARCH_PLAN.md`, `DATA_SCHEMA.md`, and `docs/SOURCES.md` for the research protocol and source-of-truth rules.
-
-## Planned outputs
-
-- a frozen Stage 1 public-data snapshot with provenance;
-- publication-ready uncertainty and rank-stability figures;
-- a versioned research report / preprint;
-- a controlled multi-run dataset for Stage 2;
-- the reusable `benchtrust` Python package.
+The project therefore has a real Stage 1 empirical result and a fully auditable Stage 2 experiment design, while making a clear boundary between completed evidence and work that has not yet been observed.
 
 ## License
 
