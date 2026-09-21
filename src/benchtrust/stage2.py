@@ -1,12 +1,11 @@
 from __future__ import annotations
 
-from collections.abc import Mapping, Sequence
 import math
+from collections.abc import Mapping, Sequence
 
 import numpy as np
 import pandas as pd
 from scipy.stats import t
-
 
 REQUIRED_TASK_COLUMNS = {"task_id", "solve_rate", "disagreement"}
 
