@@ -1,0 +1,98 @@
+import pandas as pd
+
+from benchtrust.stage2 import (
+    recommend_replicates,
+    select_stage2_tasks,
+    simulate_replicate_design,
+)
+
+
+def _task_summary(n: int = 60) -> pd.DataFrame:
+    rows = []
+    for index in range(n):
+        repository = "repo_a" if index < n // 2 else "repo_b"
+        rows.append(
+            {
+                "task_id": f"{repository}__task-{index}",
+                "solve_rate": 0.1 + 0.8 * index / max(n - 1, 1),
+                "n_systems": 10,
+                "disagreement": 0.95 if index % 3 == 0 else 0.5,
+                "entropy_bits": 0.8,
+            }
+        )
+    return pd.DataFrame(rows)
+
+
+def test_stage2_task_selection_is_reproducible_and_complete() -> None:
+    frame = _task_summary()
+    first = select_stage2_tasks(
+        frame,
+        total_tasks=24,
+        representative_tasks=16,
+        enriched_tasks=8,
+        disagreement_threshold=0.9,
+        seed=17,
+    )
+    second = select_stage2_tasks(
+        frame,
+        total_tasks=24,
+        representative_tasks=16,
+        enriched_tasks=8,
+        disagreement_threshold=0.9,
+        seed=17,
+    )
+    pd.testing.assert_frame_equal(first, second)
+    assert len(first) == 24
+    assert first["task_id"].nunique() == 24
+    assert (first["selection_component"] == "representative").sum() == 16
+    enriched = first[first["selection_component"] == "high_disagreement_enrichment"]
+    assert len(enriched) == 8
+    assert (enriched["disagreement"] >= 0.9).all()
+
+
+def test_replicate_design_simulation_is_reproducible() -> None:
+    frame = _task_summary(40)
+    first = simulate_replicate_design(
+        frame,
+        candidate_replicates=[3, 5],
+        scenarios={"moderate": 1.0},
+        n_sim=200,
+        seed=23,
+    )
+    second = simulate_replicate_design(
+        frame,
+        candidate_replicates=[3, 5],
+        scenarios={"moderate": 1.0},
+        n_sim=200,
+        seed=23,
+    )
+    pd.testing.assert_frame_equal(first, second)
+    assert first["true_score_difference"].round(8).eq(0.03).all()
+
+
+def test_recommendation_uses_smallest_candidate_meeting_thresholds() -> None:
+    frame = pd.DataFrame(
+        {
+            "scenario": ["moderate", "moderate", "high"],
+            "replicates": [3, 5, 5],
+            "score_abs_error_p95": [0.04, 0.02, 0.05],
+            "run_sd_median_relative_error": [0.4, 0.2, 0.4],
+            "paired_diff_ci_median_halfwidth": [0.05, 0.03, 0.05],
+            "unstable_detection_mean": [0.7, 0.9, 0.7],
+            "rank_reversal_median_abs_error": [0.2, 0.1, 0.2],
+        }
+    )
+    thresholds = {
+        "score_abs_error_p95": 0.03,
+        "run_sd_median_relative_error": 0.3,
+        "paired_diff_ci_median_halfwidth": 0.04,
+        "unstable_detection_mean": 0.8,
+        "rank_reversal_median_abs_error": 0.15,
+    }
+    recommendation, annotated = recommend_replicates(
+        frame,
+        primary_scenario="moderate",
+        thresholds=thresholds,
+    )
+    assert recommendation == 5
+    assert annotated.loc[1, "meets_primary_precision"]
