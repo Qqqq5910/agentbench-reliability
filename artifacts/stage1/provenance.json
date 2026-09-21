@@ -1,0 +1,52 @@
+{
+  "benchmark": "swe-bench",
+  "benchmark_split": "verified",
+  "created_at_utc": "2026-09-21T02:49:04.812422+00:00",
+  "extra": {
+    "outcome_rows": 64000,
+    "primary_outcome_rows": 22500,
+    "primary_single_attempt_submission_count": 45,
+    "submission_count": 128,
+    "task_count": 500
+  },
+  "files": [
+    {
+      "path": "data/raw/swebench_verified/swebench_verified_task_ids.csv",
+      "sha256": "2802b3bf6c21ac8411b1ecd5cee969ca6fb02b7f908115f9281ef10374ef1626",
+      "size_bytes": 11242
+    },
+    {
+      "path": "data/processed/swebench_verified_submissions.parquet",
+      "sha256": "d2b1f1dff9c908eabd891207afc1c603ff52f72376f83b1a09e1289264310448",
+      "size_bytes": 34201
+    },
+    {
+      "path": "data/processed/swebench_verified_outcomes.parquet",
+      "sha256": "bbac5c6df5f8aaefb616654a624b7917a9f17f5e3fb23da8e4d539a67944ecc8",
+      "size_bytes": 50670
+    },
+    {
+      "path": "data/processed/swebench_verified_score_reproduction.csv",
+      "sha256": "885fddd0c6984cac0593728b3dd1798b64cbea290e1cf2f43c9a79c496aa243c",
+      "size_bytes": 77516
+    },
+    {
+      "path": "data/processed/swebench_verified_primary_submissions.parquet",
+      "sha256": "fcc77a55a1b38078e038579d39448dbdfa871021a08378f4100033fa90ab5a8f",
+      "size_bytes": 25402
+    },
+    {
+      "path": "data/processed/swebench_verified_primary_outcomes.parquet",
+      "sha256": "662a5a97205a54bbb87b42959139d5276354ba101a06b98d3fd7998250be5717",
+      "size_bytes": 23318
+    }
+  ],
+  "schema_version": 1,
+  "sources": [
+    {
+      "name": "SWE-bench experiments",
+      "revision": "40f164d5b8f1d249bf95a6df8b74b577fd8e519d",
+      "url": "https://github.com/SWE-bench/experiments"
+    }
+  ]
+}
