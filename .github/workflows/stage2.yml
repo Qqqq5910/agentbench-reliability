@@ -1,0 +1,61 @@
+name: stage2-design
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/stage2.yml"
+      - "configs/stage2.yaml"
+      - "src/benchtrust/stage2.py"
+      - "src/benchtrust/cli.py"
+      - "tests/test_stage2.py"
+      - "artifacts/stage1/**"
+      - "pyproject.toml"
+
+permissions:
+  contents: write
+
+jobs:
+  design:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: Install
+        run: python -m pip install -e ".[dev]"
+
+      - name: Verify code
+        run: |
+          ruff check .
+          pytest -q
+
+      - name: Generate frozen Stage 2 design
+        run: |
+          benchtrust stage2-design \
+            artifacts/stage1/task_summary.csv \
+            configs/stage2.yaml \
+            data/stage2/task_subset.csv \
+            artifacts/stage2_design
+
+      - name: Commit Stage 2 design artifacts
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add data/stage2 artifacts/stage2_design
+          if git diff --cached --quiet; then
+            echo "No Stage 2 design changes to commit."
+            exit 0
+          fi
+          git commit -m "research: publish frozen Stage 2 design artifacts"
+          git fetch origin main
+          git rebase origin/main
+          git push origin HEAD:main
