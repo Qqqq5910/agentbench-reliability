@@ -1,69 +1,59 @@
 # Stage 2 system-selection gate
 
-The formal Stage 2 systems are **not frozen yet**. This document records the candidate
-set and the rules that must be satisfied before controlled repeated runs can begin.
-
-## Why not rerun the Stage 1 leaderboard top three?
-
-Stage 1 analyzes a frozen historical public leaderboard. That does not imply those
-historical submissions can be reproduced today with identical private scaffolds,
-provider behavior, prompts, or retired model versions.
-
-Stage 2 therefore targets a different estimand: **current controlled run-to-run
-reliability under fully frozen, reproducible configurations**.
+The formal Stage 2 systems are **not frozen yet**. The task set and replicate count are
+already frozen; this gate only decides whether a candidate scaffold is operationally
+reproducible enough to enter the paid pilot.
 
 ## Candidate design
 
-Use one common model across three distinct coding-agent scaffolds. Holding the model
-constant makes scaffold and execution reliability easier to interpret.
+Use one common model across three distinct coding-agent scaffolds. The common candidate
+model is `gpt-5.6-terra` at reasoning effort `medium` through direct OpenAI credentials.
 
-| Candidate | Repository | Frozen candidate commit |
+| Candidate | Repository | Pinned commit |
 |---|---|---|
 | SWE-agent | `SWE-agent/SWE-agent` | `3ea751c087f32b16e039a2233dd6eefecef325d5` |
-| OpenHands | `OpenHands/OpenHands` | `a5eb10d584f4dfbc6ac0fd7043c5b73bc0fa9f8e` |
+| mini-swe-agent | `SWE-agent/mini-swe-agent` | `04d809ceab9df28f9adaed044884180159172930` |
 | Moatless | `aorwall/moatless-tools` | `011ead57a5c81664e9c45e07e1f50b17e695cc63` |
 
-Candidate common model: `gpt-5.6-terra`, direct OpenAI provider access,
-reasoning effort `medium`. This remains candidate-only until each scaffold's adapter
-path is validated in the pilot.
+## Preflight replacement of OpenHands
+
+OpenHands was initially listed as a candidate. Before any paid pilot call, the pinned
+OpenHands repository was inspected for a native SWE-bench execution path. The current
+pinned repository no longer contains an in-repo SWE-bench evaluation runner, while the
+other candidates expose explicit SWE-bench execution entry points.
+
+OpenHands was therefore replaced by mini-swe-agent **before performance was observed**.
+This is an adapter/reproducibility decision permitted by the preregistered pilot gate;
+it is not a performance-based selection.
+
+mini-swe-agent is suitable for the replacement because the pinned repository exposes
+a first-party `swebench-single` runner, Docker execution, LiteLLM integration, model
+kwargs including reasoning effort, and a small auditable agent loop.
 
 ## Pilot gate
 
 The pilot uses `data/stage2/pilot_task_subset.csv`, never the 120 formal tasks.
+The fixed pilot matrix is 12 tasks × 3 systems × 2 repetitions = **72 planned runs**.
 
 A candidate may be rejected or repaired only for:
 
 - unsupported model/API adapter behavior;
 - excessive infrastructure/provider failure rate;
 - operational runtime failure;
-- projected cost that makes the frozen 3,600-run formal matrix infeasible.
+- projected cost that makes the frozen formal matrix infeasible.
 
-A candidate may **not** be selected or rejected because its pilot solve rate is high or
-low. Pilot outcomes are not part of the confirmatory dataset.
+Pilot solve rate and pilot ranking are forbidden selection criteria.
 
-## Formal matrix if all three candidates pass
+## Credential boundary
 
-- 120 formal tasks
-- 3 frozen systems
-- 10 valid replicates
-
-Total planned formal cells: **3,600 valid system-task executions**.
-
-This count excludes pilot runs and replacement attempts required by pre-defined
-infrastructure-failure rules.
+SWE-agent and mini-swe-agent require `OPENAI_API_KEY` for the candidate model.
+Moatless additionally declares `VOYAGE_API_KEY` in preflight because its SWE-bench
+retrieval stack depends on Voyage-backed embeddings. This extra dependency is itself a
+valid operational/cost consideration, but no candidate is dropped until the pilot gate
+is evaluated under the frozen rules.
 
 ## Remaining freeze fields
 
-Before changing `configs/stage2_systems.yaml` to `status: frozen`, record:
-
-1. prompt/template hash;
-2. tool configuration hash;
-3. benchmark harness commit;
-4. container digest;
-5. provider API surface actually used;
-6. environment identifier;
-7. timeout policy;
-8. retry policy.
-
-Only after those fields and the pilot gate are complete may
-`docs/STAGE2_PROTOCOL.md` be promoted to **FROZEN**.
+Before `configs/stage2_systems.yaml` can become `status: frozen`, record prompt/tool
+hashes, benchmark harness commit, container digest, provider API surface, environment
+identifier, timeout policy, and retry policy for every retained system.

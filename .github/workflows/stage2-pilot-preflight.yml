@@ -1,0 +1,82 @@
+name: stage2-pilot-preflight
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/stage2-pilot-preflight.yml"
+      - "configs/stage2_systems.yaml"
+      - "data/stage2/pilot_run_manifest.csv"
+      - "src/benchtrust/pilot.py"
+      - "src/benchtrust/cli.py"
+      - "tests/test_pilot.py"
+      - "scripts/adapters/run_moatless_single.py"
+
+permissions:
+  contents: write
+
+jobs:
+  preflight:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: Install benchtrust
+        run: python -m pip install -e ".[dev]"
+
+      - name: Verify repository tests
+        run: |
+          ruff check .
+          pytest -q
+
+      - name: Clone pinned candidate scaffolds
+        run: |
+          python - <<'PY' > /tmp/stage2-systems.tsv
+          import yaml
+          cfg = yaml.safe_load(open('configs/stage2_systems.yaml'))
+          for system in cfg['systems']:
+              print(system['system_id'], system['repository'], system['commit'], sep='\t')
+          PY
+          mkdir -p external/stage2
+          while IFS=$'\t' read -r system_id repository commit; do
+            target="external/stage2/${system_id}"
+            git init "$target"
+            git -C "$target" remote add origin "https://github.com/${repository}.git"
+            git -C "$target" fetch --depth 1 origin "$commit"
+            git -C "$target" checkout --detach FETCH_HEAD
+          done < /tmp/stage2-systems.tsv
+
+      - name: Generate and verify pilot command plan
+        run: benchtrust stage2-pilot-plan --verify-checkouts
+
+      - name: Upload no-call preflight bundle
+        uses: actions/upload-artifact@v4
+        with:
+          name: stage2-pilot-preflight
+          path: |
+            data/stage2/pilot_command_plan.csv
+            artifacts/stage2_pilot/PREFLIGHT.md
+          if-no-files-found: error
+
+      - name: Commit deterministic preflight plan
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add data/stage2/pilot_command_plan.csv artifacts/stage2_pilot/PREFLIGHT.md
+          if git diff --cached --quiet; then
+            echo "No preflight plan changes to commit."
+            exit 0
+          fi
+          git commit -m "research: publish Stage 2 pilot preflight plan"
+          git fetch origin main
+          git rebase origin/main
+          git push origin HEAD:main

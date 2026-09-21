@@ -5,9 +5,10 @@ formal_system_count: 3
 common_model:
   provider: openai
   model_id: gpt-5.6-terra
+  litellm_model_name: openai/gpt-5.6-terra
   reasoning_effort: medium
   endpoint_policy: direct_provider_only
-  api_surface: pending_pilot_adapter_validation
+  api_surface: litellm_completion_compatibility_pending
   status: candidate_pending_pilot
   verified_on: 2026-09-21
   documentation: https://platform.openai.com/docs/models/gpt-5.6-terra
@@ -18,15 +19,29 @@ systems:
     repository: SWE-agent/SWE-agent
     commit: 3ea751c087f32b16e039a2233dd6eefecef325d5
     status: candidate_pending_pilot
+    adapter:
+      kind: sweagent
+      required_paths:
+        - sweagent/run/run_batch.py
+        - config/default.yaml
+      required_secrets:
+        - OPENAI_API_KEY
     prompt_hash: pending
     tool_config_hash: pending
     container_digest: pending
 
-  - system_id: openhands_gpt56terra
-    scaffold: OpenHands
-    repository: OpenHands/OpenHands
-    commit: a5eb10d584f4dfbc6ac0fd7043c5b73bc0fa9f8e
+  - system_id: minisweagent_gpt56terra
+    scaffold: mini-swe-agent
+    repository: SWE-agent/mini-swe-agent
+    commit: 04d809ceab9df28f9adaed044884180159172930
     status: candidate_pending_pilot
+    adapter:
+      kind: mini_swe_agent
+      required_paths:
+        - src/minisweagent/run/benchmarks/swebench_single.py
+        - src/minisweagent/config/benchmarks/swebench.yaml
+      required_secrets:
+        - OPENAI_API_KEY
     prompt_hash: pending
     tool_config_hash: pending
     container_digest: pending
@@ -36,9 +51,24 @@ systems:
     repository: aorwall/moatless-tools
     commit: 011ead57a5c81664e9c45e07e1f50b17e695cc63
     status: candidate_pending_pilot
+    adapter:
+      kind: moatless
+      required_paths:
+        - scripts/docker_run.py
+        - .moatless/flows/swebench_tools.json
+      required_secrets:
+        - OPENAI_API_KEY
+        - VOYAGE_API_KEY
     prompt_hash: pending
     tool_config_hash: pending
     container_digest: pending
+
+preflight_history:
+  - candidate: OpenHands/OpenHands
+    commit: a5eb10d584f4dfbc6ac0fd7043c5b73bc0fa9f8e
+    disposition: replaced_before_paid_pilot
+    reason: pinned repository no longer contains an in-repo SWE-bench evaluation runner
+    selection_basis: reproducibility_and_adapter_compatibility_only
 
 pilot_selection_policy:
   allowed_selection_criteria:

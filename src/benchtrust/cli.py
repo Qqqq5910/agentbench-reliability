@@ -20,6 +20,7 @@ from .ingestion.swebench import (
     load_submission_outcomes,
     reproduce_submission_scores,
 )
+from .pilot import build_pilot_command_plan, validate_pilot_manifest, verify_pinned_checkouts
 from .power import paired_power_curve
 from .provenance import build_manifest, write_manifest
 from .stage2 import (
@@ -324,6 +325,74 @@ def stage2_design(
         f"artifacts to {artifact_dir}; recommended_replicates={recommendation_text}"
     )
 
+
+@app.command("stage2-pilot-plan")
+def stage2_pilot_plan(
+    manifest_path: Path = Path("data/stage2/pilot_run_manifest.csv"),
+    systems_config_path: Path = Path("configs/stage2_systems.yaml"),
+    output_path: Path = Path("data/stage2/pilot_command_plan.csv"),
+    snapshot_path: Path = Path("artifacts/stage2_pilot/PREFLIGHT.md"),
+    checkout_root: Path = Path("external/stage2"),
+    verify_checkouts: bool = False,
+) -> None:
+    """Validate the frozen pilot matrix and generate auditable scaffold commands."""
+
+    manifest = _read_table(manifest_path)
+    systems_config = yaml.safe_load(
+        systems_config_path.read_text(encoding="utf-8")
+    ) or {}
+    summary = validate_pilot_manifest(manifest, systems_config)
+    plan = build_pilot_command_plan(
+        manifest, systems_config, checkout_root=checkout_root
+    )
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    plan.to_csv(output_path, index=False)
+
+    verification = None
+    if verify_checkouts:
+        verification = verify_pinned_checkouts(
+            systems_config, checkout_root=checkout_root
+        )
+        if not verification["ok"].all():
+            typer.echo(verification.to_string(index=False), err=True)
+            raise typer.Exit(code=1)
+
+    snapshot_path.parent.mkdir(parents=True, exist_ok=True)
+    systems = systems_config.get("systems") or []
+    lines = [
+        "# Stage 2 pilot preflight",
+        "",
+        f"- Planned pilot executions: **{summary['rows']}**.",
+        f"- Candidate systems: **{summary['systems']}**.",
+        f"- Pilot tasks: **{summary['tasks']}**.",
+        f"- Replicates per system-task cell: **{summary['replicates']}**.",
+        "- Paid model calls executed by this command: **0**.",
+        "",
+        "## Candidates",
+        "",
+    ]
+    for system in systems:
+        adapter = system.get("adapter") or {}
+        lines.append(
+            f"- `{system['system_id']}`: `{system['repository']}@{system['commit']}` "
+            f"via `{adapter.get('kind')}`."
+        )
+    if verification is not None:
+        lines.extend(["", "## Checkout verification", ""])
+        for row in verification.itertuples(index=False):
+            lines.append(
+                f"- `{row.system_id}`: {'PASS' if row.ok else 'FAIL'} "
+                f"({row.observed_commit or 'no revision'})"
+            )
+    lines.extend(
+        [
+            "",
+            "This is a no-model-call preflight. Pilot solve outcomes are not generated or inspected.",
+            "",
+        ]
+    )
+    snapshot_path.write_text("\n".join(lines), encoding="utf-8")
+    typer.echo(f"Wrote {output_path} and {snapshot_path}")
 
 @app.command("fetch-swebench-verified")
 def fetch_swebench_verified(
