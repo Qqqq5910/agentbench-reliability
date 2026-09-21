@@ -39,12 +39,7 @@ jobs:
           pytest -q
 
       - name: Generate frozen Stage 2 design
-        run: |
-          benchtrust stage2-design \
-            artifacts/stage1/task_summary.csv \
-            configs/stage2.yaml \
-            data/stage2/task_subset.csv \
-            artifacts/stage2_design
+        run: benchtrust stage2-design
 
       - name: Commit Stage 2 design artifacts
         run: |
