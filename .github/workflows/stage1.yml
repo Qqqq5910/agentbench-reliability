@@ -6,10 +6,21 @@ on:
     branches: [main]
     paths:
       - ".github/workflows/stage1.yml"
-      - "src/benchtrust/**"
-      - "tests/**"
-      - "configs/**"
-      - "pyproject.toml"
+      - "configs/swebench_verified_stage1.yaml"
+      - "src/benchtrust/ingestion/**"
+      - "src/benchtrust/cohorts.py"
+      - "src/benchtrust/statistics.py"
+      - "src/benchtrust/power.py"
+      - "src/benchtrust/provenance.py"
+      - "src/benchtrust/validation.py"
+      - "src/benchtrust/visualization.py"
+      - "tests/test_ingestion.py"
+      - "tests/test_cohorts.py"
+      - "tests/test_statistics.py"
+      - "tests/test_power.py"
+      - "tests/test_provenance.py"
+      - "tests/test_validation.py"
+      - "tests/test_visualization.py"
 
 permissions:
   contents: write
