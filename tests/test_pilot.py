@@ -6,8 +6,8 @@ from benchtrust.pilot import (
     build_pilot_command_plan,
     build_runtime_plan,
     execute_pilot_plan,
-    setup_pilot_runtimes,
     select_execution_rows,
+    setup_pilot_runtimes,
     validate_pilot_manifest,
 )
 
