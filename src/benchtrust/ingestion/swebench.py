@@ -55,9 +55,9 @@ def _optional_bool(value: Any) -> bool | None:
         return bool(value)
     if isinstance(value, str):
         normalized = value.strip().lower()
-        if normalized == "true" or normalized.startswith("true ") or normalized.startswith("true("):
+        if normalized == "true" or normalized.startswith(("true ", "true(")):
             return True
-        if normalized == "false" or normalized.startswith("false ") or normalized.startswith("false("):
+        if normalized == "false" or normalized.startswith(("false ", "false(")):
             return False
     return None
 
